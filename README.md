@@ -1,6 +1,6 @@
 # ProVIBot
 
-ProVIBot is a Slack agent with a persistent Alder identity, including its wallet. You can send it a direct message, mention it in its configured ambient channel, or continue a task in an existing thread. Its managed session uses the tools and relevant Slack files it needs for the work.
+ProVIBot is a Slack agent with a persistent Alder identity, including its wallet. You can send it a direct message, mention it in the configured `#general` channel, or continue a task in an existing thread. Its managed session uses the tools and relevant Slack files it needs for the work.
 
 This repository sets up and operates a ProVIBot deployment. It keeps the Slack credential synchronized, renews the managed session, deploys the Slack event receiver, and stops hosted resources without replacing ProVIBot's Alder identity.
 
@@ -26,9 +26,9 @@ Throughout this guide, **Alder identity** is the persistent identity that authen
 | Incoming Slack activity | Expected behavior |
 | --- | --- |
 | Direct message | A complete request receives a top level reply. An obviously incomplete fragment may wait for the next message. |
-| `@ProVIBot` mention in the configured ambient channel | ProVIBot replies at the channel level. |
+| `@ProVIBot` mention in `#general` | ProVIBot replies at the channel level. |
 | Reply in an existing thread | ProVIBot continues in that thread. |
-| Ordinary message in the configured ambient channel | The message becomes ambient context. ProVIBot normally remains silent unless it can materially answer, correct, unblock, or advance work it owns. |
+| Ordinary message in `#general` | The message becomes ambient context. ProVIBot normally remains silent unless it can materially answer, correct, unblock, or advance work it owns. |
 | Attached file | The normalized activation includes the Slack file ID. ProVIBot retrieves the file through Slack MCP when it is relevant to the request. |
 
 A visible reply is always sent by ProVIBot through the Slack Model Context Protocol (MCP) server. Internal managed session messages are not copied into Slack.
@@ -63,10 +63,10 @@ The launcher is idempotent: when the local identity record points to the existin
 After `npm start` completes successfully, check the three deterministic Slack routes:
 
 1. Send ProVIBot a direct message and ask for a brief acknowledgement.
-2. Mention `@ProVIBot` in the configured ambient channel and ask for a brief acknowledgement.
+2. Mention `@ProVIBot` in `#general` and ask for a brief acknowledgement.
 3. Reply to ProVIBot inside an existing thread and confirm that the response remains in the same thread.
 
-Ordinary, unmentioned messages in the configured ambient channel are not a deterministic health check because ProVIBot is intentionally selective about responding to ambient conversation.
+Ordinary, unmentioned messages in `#general` are not a deterministic health check because ProVIBot is intentionally selective about responding to ambient conversation.
 
 ## How it works
 
@@ -103,7 +103,7 @@ The inbound receiver and the outbound Slack identity are deliberately separate. 
 | --- | --- | --- |
 | Workspace | `PROVIBOT_SLACK_TEAM_ID` | The configured Slack workspace ID. |
 | Service user | `PROVIBOT_SLACK_USER_ID` | The regular Slack user ID belonging to ProVIBot. |
-| Ambient channel | `PROVIBOT_SLACK_CHANNEL_ID` | The configured ambient channel ID. |
+| `#general` channel | `PROVIBOT_SLACK_CHANNEL_ID` | The configured `#general` channel ID. |
 | Event subscriptions | Slack app settings | `message.im` and `message.channels`. |
 | Request verification | `PROVIBOT_SLACK_SIGNING_SECRET` | Receiver-only signing secret from the Slack app's **Basic Information** page for verifying incoming Slack requests. |
 | Outbound identity | Slack credential held in the Vault | The ProVIBot service user, never the Lambda receiver or local launcher. |

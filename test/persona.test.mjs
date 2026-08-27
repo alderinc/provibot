@@ -19,6 +19,8 @@ test("standing persona makes windows agent-owned and response placement delibera
   assert.match(prompt, /use the mounted Slack MCP server's message-sending tool/);
   assert.match(prompt, /confirm that the Slack MCP send succeeded/);
   assert.match(prompt, /A direct mention always earns a response/);
+  assert.match(prompt, /#general channel and direct conversations/);
+  assert.match(prompt, /root #general mention/);
   assert.match(prompt, /attention=ambient means you may read the message but ordinarily stay silent/);
   assert.match(prompt, /\/provi\/active-work\.md/);
   assert.match(prompt, /never poll, schedule work, watch typing/);
