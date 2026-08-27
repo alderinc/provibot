@@ -1,0 +1,19 @@
+{
+  "name": "provibot",
+  "version": "0.1.0",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@alderinc/sdk": "0.1.0"
+  },
+  "scripts": {
+    "check": "node --check src/endpoints.mjs && node --check src/run.mjs && node --check src/persona.mjs && node --check src/managed-agent-tools.mjs && node --check src/standing-runtime.mjs && node --check src/renew.mjs && node --check slack-events/handler.mjs && node --check slack-events/deployer-role.mjs && node --check slack-events/bootstrap-deployer.mjs && node --check slack-events/deploy.mjs && node --check src/authorize-slack.mjs && node --check src/stop.mjs && node --test test/*.test.mjs slack-events/test/*.test.mjs",
+    "authorize-slack": "node --env-file=.env src/authorize-slack.mjs",
+    "bootstrap:slack-events-deployer": "node slack-events/bootstrap-deployer.mjs",
+    "deploy:slack-events": "node --env-file=.env slack-events/deploy.mjs",
+    "start": "node --env-file=.env src/run.mjs",
+    "renew": "node --env-file=.env src/renew.mjs",
+    "stop": "node --env-file=.env src/stop.mjs"
+  }
+}
