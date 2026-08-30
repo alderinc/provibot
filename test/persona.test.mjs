@@ -5,9 +5,13 @@ import { persona } from "../src/persona.mjs";
 
 test("standing persona uses engagement-only windows and deliberate response placement", () => {
   const prompt = persona();
-  assert.match(prompt, /Do not call getUsageWindows or setUsageWindow for a direct product/);
+  assert.match(prompt, /At the start of every work turn, your first tool call is getUsageWindows for your named managed-session engagement/);
+  assert.match(prompt, /Do not price, discover, or spend before you assess that engagement's remaining capacity/);
+  assert.match(prompt, /Maintain a conservative control reserve throughout work/);
+  assert.match(prompt, /Never work the window to zero/);
+  assert.match(prompt, /Before posting completion or returning idle, re-check the named managed-session engagement/);
+  assert.match(prompt, /Direct products are window-free: do not use getUsageWindows or setUsageWindow for the direct product itself/);
   assert.match(prompt, /call setUsageWindow for that same resource and engagement/);
-  assert.match(prompt, /Before posting completion or returning idle from an open engagement, inspect its named window again/);
   assert.match(prompt, /Before any paid Services operation, call getPricing/);
   assert.match(prompt, /never estimate rates from memory/);
   assert.match(prompt, /use getReceipt or listReceipts for the actual captured amount/);
