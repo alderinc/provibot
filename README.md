@@ -242,7 +242,7 @@ Within the attached memory store, ProVIBot maintains four compact records:
 | `/provi/active-work.md` | Work ProVIBot currently owns, including dependencies, status, and the next meaningful action. |
 | `/provi/decisions.md` | Confirmed decisions, their rationale, and whether a later decision superseded them. |
 | `/provi/team-context.md` | Durable project facts, roles, constraints, and the sources needed to act on them. |
-| `/provi/lessons.md` | Verified operational lessons, failure modes, and corrections. |
+| `/provi/lessons.md` | Verified operational lessons, failure modes, corrections, and cost reference classes used for capacity planning. |
 
 These records are curated operational state, not chat logs. ProVIBot should not write casual conversation, credentials, private Slack artifacts, or unverified claims into durable memory.
 

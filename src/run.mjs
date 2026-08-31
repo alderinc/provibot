@@ -4,6 +4,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { OrganizationClient, usdNanodollars } from "@alderinc/sdk";
 
 import { alderMcpUrl, alderServicesUrl, alderUrl } from "./endpoints.mjs";
+import { durableMemorySeeds, ensureDurableMemoryStructure } from "./durable-memory.mjs";
 import { persona } from "./persona.mjs";
 import { decryptEnrollment, managed, previewAuthHeader, refreshCredentials, requestJson, required } from "./shared.mjs";
 import { configureStandingRuntime } from "./standing-runtime.mjs";
@@ -43,13 +44,6 @@ const slackUserScopes = [
   "files:read",
   "users:read",
   "users:read.email",
-];
-
-const durableMemorySeeds = [
-  ["/provi/active-work.md", "# Active work\n\nKeep only current owned tasks, their accountable owner, current status, dependencies, and next meaningful action. Remove or mark completed work promptly."],
-  ["/provi/decisions.md", "# Decisions\n\nRecord confirmed decisions with date, rationale, and superseded status. Do not preserve unverified proposals."],
-  ["/provi/team-context.md", "# Team context\n\nKeep durable project facts, roles, constraints, and cited sources that materially affect future work. Never store credentials or private Slack artifacts."],
-  ["/provi/lessons.md", "# Lessons\n\nKeep compact, verified operational lessons and corrections that prevent repeated mistakes. Consolidate duplicates rather than appending a transcript."],
 ];
 
 async function validateSlackUserCredential() {
@@ -183,24 +177,6 @@ function listedItems(payload) {
   return [];
 }
 
-async function ensureMemoryStructure(state) {
-  // This is a one-way schema seed: add missing canonical records without
-  // overwriting curated team memory that the hosted agent already maintains.
-  if (state.memoryStructureVersion === 1) return state;
-  const existing = listedItems(await managedControl("GET", `/memory_stores/${encodeURIComponent(state.hosted.memoryStoreId)}/memories`, undefined, undefined));
-  const paths = new Set(existing.map((memory) => memory?.path).filter((path) => typeof path === "string"));
-  for (const [path, content] of durableMemorySeeds) {
-    if (paths.has(path)) continue;
-    await managedControl(
-      "POST",
-      `/memory_stores/${encodeURIComponent(state.hosted.memoryStoreId)}/memories`,
-      { path, content },
-      `provibot:${state.runId}:memory:${createHash("sha256").update(path).digest("hex").slice(0, 12)}`,
-    );
-  }
-  return { ...state, memoryStructureVersion: 1 };
-}
-
 async function syncSlackVaultCredential(state) {
   const fingerprint = tokenFingerprint(slack.accessToken);
   if (state.slackCredentialFingerprint === fingerprint && state.hosted.slackCredentialId) return state;
@@ -294,7 +270,8 @@ async function createHostedStack() {
       runId,
       reusedAlderAgent: agent.reused,
       hosted: { agentId: hostedAgent.id, environmentId: environment.id, memoryStoreId: memory.id, sessionId: session.id, slackCredentialId: slackCredential.id, vaultId: vault.id },
-      memoryStructureVersion: 1,
+      lessonsReferenceClassVersion: 1,
+      memoryStructureVersion: 2,
       slackCredentialFingerprint: tokenFingerprint(slack.accessToken),
       standingPersonaHash: createHash("sha256").update(persona()).digest("hex").slice(0, 16),
     };
@@ -316,7 +293,7 @@ async function loadOrCreateState() {
     controlCredentials = await readJson(authPath);
     if (!controlCredentials) throw new Error("ProVIBot state exists without renewable control credentials; run npm run stop before reprovisioning");
     let updated = await syncSlackVaultCredential(state);
-    updated = await ensureMemoryStructure(updated);
+    updated = await ensureDurableMemoryStructure({ control: managedControl, state: updated });
     const systemHash = await applyStandingAgentPersona(updated);
     if (updated.standingPersonaHash !== systemHash) {
       updated = { ...updated, pendingPersonaHash: systemHash };

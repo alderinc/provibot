@@ -5,6 +5,10 @@ import { persona } from "../src/persona.mjs";
 
 test("standing persona uses engagement-only windows and deliberate response placement", () => {
   const prompt = persona();
+  const firstCapacityCheck = prompt.indexOf("At the start of every work turn, your first tool call is getUsageWindows");
+  const acknowledgement = prompt.indexOf("send a one-line Slack acknowledgement before the first paid call");
+  const firstPrice = prompt.indexOf("Before any paid Services operation, call getPricing");
+  assert.ok(firstCapacityCheck >= 0 && acknowledgement > firstCapacityCheck && firstPrice > acknowledgement);
   assert.match(prompt, /At the start of every work turn, your first tool call is getUsageWindows for your named managed-session engagement/);
   assert.match(prompt, /Do not price, discover, or spend before you assess that engagement's remaining capacity/);
   assert.match(prompt, /Maintain a conservative control reserve throughout work/);
@@ -14,6 +18,10 @@ test("standing persona uses engagement-only windows and deliberate response plac
   assert.match(prompt, /call setUsageWindow for that same resource and engagement/);
   assert.match(prompt, /Before any paid Services operation, call getPricing/);
   assert.match(prompt, /never estimate rates from memory/);
+  assert.match(prompt, /multi-step paid work.*send a one-line Slack acknowledgement before the first paid call/);
+  assert.match(prompt, /estimate the total against the remaining managed-session engagement capacity while preserving the control reserve/);
+  assert.match(prompt, /record the estimate, reference-class basis, remaining capacity, and decision in \/provi\/active-work\.md/);
+  assert.match(prompt, /deliberately resize the same engagement before starting, or post a concise blocker/);
   assert.match(prompt, /use getReceipt or listReceipts for the actual captured amount/);
   assert.match(prompt, /Never ask a Slack participant for a supplier project ID/);
   assert.match(prompt, /confirmReduction: true/);
@@ -28,6 +36,8 @@ test("standing persona uses engagement-only windows and deliberate response plac
   assert.match(prompt, /root #general mention/);
   assert.match(prompt, /attention=ambient means you may read the message but ordinarily stay silent/);
   assert.match(prompt, /\/provi\/active-work\.md/);
+  assert.match(prompt, /full provider health check cost \$2\.45 against a \$0\.60 default managed-session window/);
+  assert.match(prompt, /After every costed task, record its verified total, the comparable work shape, and its receipt or payment reference in \/provi\/lessons\.md/);
   assert.match(prompt, /never poll, schedule work, watch typing/);
   assert.doesNotMatch(prompt, /\bProVI\b/);
   assert.doesNotMatch(prompt, /\b[CDTU]_[A-Z0-9]+\b/);

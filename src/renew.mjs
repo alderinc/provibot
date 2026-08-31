@@ -1,6 +1,7 @@
 import { readFile, rename, writeFile } from "node:fs/promises";
 
 import { alderMcpUrl, alderServicesUrl } from "./endpoints.mjs";
+import { ensureDurableMemoryStructure } from "./durable-memory.mjs";
 import { managed, refreshCredentials } from "./shared.mjs";
 import { configureStandingRuntime } from "./standing-runtime.mjs";
 
@@ -36,6 +37,9 @@ async function control(method, path, body, idempotencyKey) {
 if (!state?.alderAgentId || !state?.hosted?.agentId || !state?.hosted?.environmentId || !state?.hosted?.memoryStoreId || !state?.hosted?.sessionId || !state?.hosted?.vaultId) {
   throw new Error("ProVIBot hosted state is incomplete; refusing to renew into a second identity");
 }
+
+const seeded = await ensureDurableMemoryStructure({ control, state });
+if (seeded !== state) await writeState(seeded);
 
 let renewal = state.sessionRenewal;
 if (!renewal) {
