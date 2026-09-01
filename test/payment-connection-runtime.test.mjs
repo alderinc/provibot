@@ -4,14 +4,14 @@ import test from "node:test";
 
 import { fullManagedAgentTools, managedMcpServers } from "../src/managed-agent-tools.mjs";
 
-test("ProVIBot mounts only the read-only Services capacity capability", () => {
+test("ProVIBot mounts only the bounded Services capacity capabilities", () => {
   const servers = managedMcpServers({
     alderMcpUrl: "https://app.alder.exchange/mcp",
     alderServicesUrl: "https://services.alder.exchange",
   });
   assert.deepEqual(servers.map((server) => server.name), ["alder", "alder-session-capacity", "slack"]);
   const capacity = fullManagedAgentTools(servers).find((tool) => tool.mcp_server_name === "alder-session-capacity");
-  assert.deepEqual(capacity.configs.map((config) => config.name), ["getManagedSessionCapacity"]);
+  assert.deepEqual(capacity.configs.map((config) => config.name), ["getManagedSessionCapacity", "setUsageWindow"]);
   assert.equal(capacity.default_config.enabled, false);
 });
 
@@ -30,7 +30,7 @@ test("owner establishment stays in the encrypted enrollment handoff", async () =
   assert.match(enrollment, /quoteManagedSessionAdmission/);
   assert.match(enrollment, /agent-instances\/admission-quote/);
   assert.match(enrollment, /paymentGrantCapNanodollars/);
-  assert.match(enrollment, /does not cover the complete first Core hold/);
+  assert.match(enrollment, /does not cover the complete first required hold/);
   assert.match(enrollment, /installationId: `\$\{installationId\}-admission-quote`/);
   assert.match(enrollment, /await preflight\.acknowledge\(\)/);
   assert.doesNotMatch(enrollment, /PROVIBOT_INITIAL_MANAGED_SESSION_NANODOLLARS/);

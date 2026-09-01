@@ -14,9 +14,10 @@ const alwaysAllow = Object.freeze({ type: "always_allow" });
 export function managedMcpServers({ alderMcpUrl, alderServicesUrl }) {
   return [
     { name: "alder", type: "url", url: alderMcpUrl },
-    // This is intentionally a one-tool Services mount. Provider operations
-    // remain ordinary HTTPS calls authenticated with sat_; the agent gets only
-    // the read-only session-capacity fact it needs to follow its doctrine.
+    // This intentionally exposes only the two managed-session capacity
+    // operations. Provider work remains ordinary HTTPS calls authenticated
+    // with sat_; an agent may inspect and deliberately increase its own
+    // session runway, but receives no supplier or hold controls here.
     { name: "alder-session-capacity", type: "url", url: `${alderServicesUrl}/mcp` },
     { name: "slack", type: "url", url: "https://mcp.slack.com/mcp" },
   ];
@@ -34,7 +35,10 @@ export function fullManagedAgentTools(mcpServers) {
           type: "mcp_toolset",
           mcp_server_name: server.name,
           default_config: { enabled: false, permission_policy: alwaysAllow },
-          configs: [{ name: "getManagedSessionCapacity", enabled: true, permission_policy: alwaysAllow }],
+          configs: [
+            { name: "getManagedSessionCapacity", enabled: true, permission_policy: alwaysAllow },
+            { name: "setUsageWindow", enabled: true, permission_policy: alwaysAllow },
+          ],
         }
       : {
           type: "mcp_toolset",

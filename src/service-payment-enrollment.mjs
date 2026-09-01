@@ -50,7 +50,7 @@ async function quoteManagedSessionAdmission(agentAccessToken) {
   const settlementReserveNanodollars = assertPositiveNanodollars(quote.settlementReserveNanodollars, "settlementReserveNanodollars");
   const paymentGrantCapNanodollars = assertPositiveNanodollars(quote.paymentGrantCapNanodollars, "paymentGrantCapNanodollars");
   if (BigInt(paymentGrantCapNanodollars) !== BigInt(engagementWindowNanodollars) + BigInt(settlementReserveNanodollars)) {
-    throw new Error("Alder Services admission quote does not cover the complete first Core hold");
+    throw new Error("Alder Services admission quote does not cover the complete first required hold");
   }
   return { paymentGrantCapNanodollars };
 }
@@ -75,7 +75,7 @@ async function createOwnerEnrollment({ agentId, installationId, paymentGrantCapN
 
 /**
  * The owner establishes the first relationship in one encrypted enrollment.
- * Services first quotes the actual Core hold from its live rate card using a
+ * Services first quotes the actual server-side hold from its live rate card using a
  * disposable ordinary enrollment. This launcher never writes an apg_ to disk
  * or state and never reproduces the settlement-reserve arithmetic locally.
  */

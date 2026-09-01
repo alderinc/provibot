@@ -16,10 +16,11 @@ test("full managed-agent profile enables every native tool without weakening MCP
   }
   const capacity = mcp.find((tool) => tool.mcp_server_name === "alder-session-capacity");
   assert.deepEqual(capacity.default_config, { enabled: false, permission_policy: { type: "always_allow" } });
-  assert.deepEqual(capacity.configs.map(({ name }) => name), ["getManagedSessionCapacity"]);
+  assert.deepEqual(capacity.configs.map(({ name }) => name), ["getManagedSessionCapacity", "setUsageWindow"]);
+  assert.deepEqual(capacity.configs.map(({ name }) => name).filter((name) => name !== "getManagedSessionCapacity" && name !== "setUsageWindow"), []);
 });
 
-test("provider access is external HTTPS; Services MCP exposes capacity only", () => {
+test("provider access is external HTTPS; Services MCP exposes only managed-session capacity controls", () => {
   const servers = managedMcpServers({ alderMcpUrl: "https://app.alder.exchange/mcp", alderServicesUrl: "https://services.alder.exchange" });
   assert.deepEqual(servers.map((server) => server.name), ["alder", "alder-session-capacity", "slack"]);
 });
