@@ -145,7 +145,7 @@ vi .env
 | Group | Variables | When required | Obtain from |
 | --- | --- | --- | --- |
 | Organization | `ALDER_ORG_API_KEY` | Normal launch and operation | The organization that owns ProVIBot. |
-| First Services connection | `ALDER_SERVICES_MERCHANT_APPLICATION_ID`, `PROVIBOT_INITIAL_MANAGED_SESSION_NANODOLLARS` | First launch or renewal of a pre-connection deployment | The approved Services merchant application and the owner-selected initial managed-session amount. |
+| First Services connection | `ALDER_SERVICES_MERCHANT_APPLICATION_ID` | First launch or renewal of a pre-connection deployment | The approved Services merchant application. Services quotes the exact initial admission from its live rate card before the owner issues the encrypted establishment grant. |
 | Slack user OAuth | `PROVIBOT_SLACK_ACCESS_TOKEN`, `PROVIBOT_SLACK_CLIENT_ID`, `PROVIBOT_SLACK_CLIENT_SECRET` | Slack MCP authorization; the client secret is needed only for a confidential client | `npm run authorize-slack` and the Slack app configuration. |
 | Slack routing | `PROVIBOT_SLACK_TEAM_ID`, `PROVIBOT_SLACK_USER_ID`, `PROVIBOT_SLACK_CHANNEL_ID` | Normal event routing | Slack workspace, ProVIBot user, and configured ambient-channel metadata. |
 | Slack request verification | `PROVIBOT_SLACK_SIGNING_SECRET` | Standing receiver only; verifies incoming Slack requests | Slack app **Basic Information**. |
