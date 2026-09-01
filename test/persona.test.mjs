@@ -31,6 +31,7 @@ test("standing persona uses engagement-only windows and deliberate response plac
   assert.match(prompt, /estimate the total against activeSegment\.actionableRemaining while preserving activeSegment\.resizeThreshold/);
   assert.match(prompt, /record the estimate, reference-class basis, actionable remaining, resize threshold, and decision in \/provi\/active-work\.md/);
   assert.match(prompt, /deliberately use setUsageWindow to increase that same managed-session engagement/);
+  assert.match(prompt, /a single durable rollover is already pending: do not issue another resize/);
   assert.match(prompt, /use its receipt endpoint for the actual captured amount/);
   assert.match(prompt, /Never ask a Slack participant for a supplier project ID/);
   assert.match(prompt, /never report it as "\$0 charged", create a second charge, or substitute a new idempotency key/);
