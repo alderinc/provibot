@@ -10,8 +10,6 @@ import { managed, refreshCredentials, required } from "./shared.mjs";
 import { ownerServiceEnrollment } from "./service-payment-enrollment.mjs";
 import { configureStandingRuntime } from "./standing-runtime.mjs";
 
-const servicesUrl = alderServicesUrl;
-const servicesResource = alderServicesUrl;
 const statePath = new URL("../.local-state/provibot.json", import.meta.url);
 const authPath = new URL("../.local-state/provibot-auth.json", import.meta.url);
 const identityPath = new URL("../.local-state/provibot-identity.json", import.meta.url);
@@ -181,7 +179,7 @@ async function applyStandingAgentPersona(state) {
   // Keep the hosted agent and its active session on the same tool/policy
   // contract. A changed policy is recorded below and takes effect only through
   // the explicit renewal path; launch must not silently replace a live session.
-  return configureStandingRuntime({ alderMcpUrl, alderServicesUrl, control: managedControl, state });
+  return configureStandingRuntime({ alderMcpUrl, control: managedControl, state });
 }
 
 async function createHostedStack() {
@@ -202,12 +200,12 @@ async function createHostedStack() {
   try {
     const vault = await managedControl("POST", "/vaults", { display_name: "ProVIBot", metadata: { provibotRunId: runId } }, `${runId}:vault`);
     created.push(["vaults", vault.id]);
-    const alderMcpCredentials = enrollment.controlCredentials;
-    for (const [credentials, url] of [[alderMcpCredentials, alderMcpUrl], [alderMcpCredentials, `${servicesUrl}/mcp`]]) {
-      const credential = await managedControl("POST", `/vaults/${vault.id}/credentials`, mcpCredential(credentials, url, runId), `${runId}:mcp:${created.length}`);
-      created.push([`vaults/${vault.id}/credentials`, credential.id]);
-      await managedControl("POST", `/vaults/${vault.id}/credentials/${credential.id}/mcp_oauth_validate`, {}, `${runId}:mcp-validate:${credential.id}`);
-    }
+    const alderMcpCredential = await managedControl(
+      "POST", `/vaults/${vault.id}/credentials`,
+      mcpCredential(enrollment.controlCredentials, alderMcpUrl, runId), `${runId}:mcp:alder`,
+    );
+    created.push([`vaults/${vault.id}/credentials`, alderMcpCredential.id]);
+    await managedControl("POST", `/vaults/${vault.id}/credentials/${alderMcpCredential.id}/mcp_oauth_validate`, {}, `${runId}:mcp-validate:${alderMcpCredential.id}`);
     const slackCredential = await managedControl("POST", `/vaults/${vault.id}/credentials`, { display_name: `ProVIBot Slack ${slack.teamId}`, metadata: { channelId: slack.channelId, provibotRunId: runId }, auth: { type: "static_bearer", token: slack.accessToken, mcp_server_url: "https://mcp.slack.com/mcp" } }, `${runId}:slack`);
     created.push([`vaults/${vault.id}/credentials`, slackCredential.id]);
     const memory = await managedControl("POST", "/memory_stores", { name: "ProVIBot memory", description: "Authoritative durable summaries of requests, decisions, blockers, and completed work.", metadata: { provibotRunId: runId } }, `${runId}:memory`);
@@ -216,9 +214,9 @@ async function createHostedStack() {
       const seededMemory = await managedControl("POST", `/memory_stores/${memory.id}/memories`, { path, content }, `${runId}:memory:${createHash("sha256").update(path).digest("hex").slice(0, 12)}`);
       created.push([`memory_stores/${memory.id}/memories`, seededMemory.id]);
     }
-    const environment = await managedControl("POST", "/environments", { name: "ProVIBot", config: { type: "cloud", networking: { type: "limited", allowed_hosts: [new URL(alderMcpUrl).hostname, new URL(servicesUrl).hostname, "mcp.slack.com"].sort(), allow_mcp_servers: true, allow_package_managers: false } }, metadata: { provibotRunId: runId } }, `${runId}:environment`);
+    const environment = await managedControl("POST", "/environments", { name: "ProVIBot", config: { type: "cloud", networking: { type: "limited", allowed_hosts: [new URL(alderMcpUrl).hostname, new URL(alderServicesUrl).hostname, "mcp.slack.com"].sort(), allow_mcp_servers: true, allow_package_managers: false } }, metadata: { provibotRunId: runId } }, `${runId}:environment`);
     created.push(["environments", environment.id]);
-    const mcpServers = managedMcpServers({ alderMcpUrl, alderServicesUrl });
+    const mcpServers = managedMcpServers({ alderMcpUrl });
     const hostedAgent = await managedControl("POST", "/agents", { name: "ProVIBot", model: "claude-sonnet-5", mcp_servers: mcpServers, tools: fullManagedAgentTools(mcpServers), system: persona(), metadata: { provibotRunId: runId } }, `${runId}:agent`);
     created.push(["agents", hostedAgent.id]);
     const session = await managedControl("POST", "/sessions", { agent: hostedAgent.id, environment_id: environment.id, vault_ids: [vault.id], resources: [{ type: "memory_store", memory_store_id: memory.id, access: "read_write", instructions: "Read this durable task record before work and update it after meaningful progress or completion." }], metadata: { provibotRunId: runId }, title: "ProVIBot" }, `${runId}:session`, { "x-alder-payment-grant": enrollment.establishmentGrant });

@@ -1,9 +1,13 @@
 import { readFile, rename, writeFile } from "node:fs/promises";
 
-import { alderMcpUrl, alderServicesUrl, alderUrl } from "./endpoints.mjs";
+import { alderMcpUrl } from "./endpoints.mjs";
 import { ensureDurableMemoryStructure } from "./durable-memory.mjs";
-import { managed, refreshCredentials, requestJson, required } from "./shared.mjs";
-import { ownerServiceEnrollment } from "./service-payment-enrollment.mjs";
+import { managed, refreshCredentials } from "./shared.mjs";
+import {
+  findExistingServicesConnection,
+  ownerServiceEnrollment,
+  recoverExistingServicesAccess,
+} from "./service-payment-enrollment.mjs";
 import { configureStandingRuntime } from "./standing-runtime.mjs";
 
 const stateUrl = new URL("../.local-state/provibot.json", import.meta.url);
@@ -34,17 +38,6 @@ async function control(method, path, body, idempotencyKey) {
   return managed(method, path, await controlToken(), body, idempotencyKey);
 }
 
-async function currentServiceConnection() {
-  const payload = await requestJson(`${alderUrl}/agent/merchant-connections`, {
-    headers: { authorization: `Bearer ${await controlToken()}` },
-    method: "GET",
-  }, "read existing Alder Services connection");
-  const merchantApplicationId = required("ALDER_SERVICES_MERCHANT_APPLICATION_ID");
-  return Array.isArray(payload?.items)
-    ? payload.items.find((item) => item?.merchantApplicationId === merchantApplicationId && item?.status === "active") ?? null
-    : null;
-}
-
 if (!state?.alderAgentId || !state?.hosted?.agentId || !state?.hosted?.environmentId || !state?.hosted?.memoryStoreId || !state?.hosted?.sessionId || !state?.hosted?.vaultId) {
   throw new Error("ProVIBot hosted state is incomplete; refusing to renew into a second identity");
 }
@@ -59,7 +52,7 @@ const ownerEnrollment = await ownerServiceEnrollment({
 });
 credentials = ownerEnrollment.controlCredentials;
 await writeFile(authUrl, `${JSON.stringify(credentials)}\n`, { mode: 0o600 });
-const existingConnection = await currentServiceConnection();
+const existingConnection = await findExistingServicesConnection({ ...credentials, accessToken: await controlToken() });
 let establishment = null;
 if (!existingConnection) {
   // This is the one owner-only bootstrap for a pre-connection deployment.
@@ -95,7 +88,16 @@ if (renewal.state !== "closed") throw new Error(`ProVIBot session renewal checkp
 // Create the replacement only after final capture/release for the prior
 // session completes. The Alder agent, wallet, Vault, environment, and memory
 // store stay constant across this deliberately explicit session boundary.
-const session = await managed("POST", "/sessions", await controlToken(), {
+// A replacement session is admitted with a short-lived sat_ recovered against
+// the same pma_. Recover only after closing the old session so its live token
+// is not rotated during work. An Alder identity remains lifecycle-only; it
+// cannot select a payment method for a new managed-session hold.
+const recoveredConnection = establishment
+  ? null
+  : await recoverExistingServicesAccess({ ...credentials, accessToken: await controlToken() }, existingConnection);
+const sessionAccessToken = establishment?.establishmentGrant ? await controlToken() : recoveredConnection?.sat;
+if (!sessionAccessToken) throw new Error("ProVIBot has no established Alder Services connection for session renewal");
+const session = await managed("POST", "/sessions", sessionAccessToken, {
   agent: state.hosted.agentId,
   environment_id: state.hosted.environmentId,
   vault_ids: [state.hosted.vaultId],
@@ -114,7 +116,6 @@ const replacement = { ...state, hosted: { ...state.hosted, sessionId: session.id
 // a failed configuration remains recoverable through the same creation key.
 const standingPersonaHash = await configureStandingRuntime({
   alderMcpUrl,
-  alderServicesUrl,
   control,
   state: replacement,
 });

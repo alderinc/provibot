@@ -39,9 +39,9 @@ async function exchangeOwnerEnrollment(enrollment, installationId) {
   };
 }
 
-async function quoteManagedSessionAdmission(agentAccessToken) {
+async function quoteManagedSessionAdmission(establishmentGrant) {
   const quote = await requestJson(`${alderServicesUrl}/agent-instances/admission-quote`, {
-    headers: { authorization: `Bearer ${agentAccessToken}` },
+    headers: { "x-alder-payment-grant": establishmentGrant },
   }, "managed-session admission quote");
   if (quote?.route !== "anthropic.managed.sessions" || typeof quote?.rateCardVersion !== "string") {
     throw new Error("Alder Services admission quote did not identify the managed-session rate card");
@@ -53,6 +53,13 @@ async function quoteManagedSessionAdmission(agentAccessToken) {
     throw new Error("Alder Services admission quote does not cover the complete first required hold");
   }
   return { paymentGrantCapNanodollars };
+}
+
+function ownerInitialGrantCapNanodollars() {
+  return assertPositiveNanodollars(
+    required("PROVIBOT_INITIAL_SERVICE_GRANT_CAP_NANODOLLARS"),
+    "PROVIBOT_INITIAL_SERVICE_GRANT_CAP_NANODOLLARS",
+  );
 }
 
 async function createOwnerEnrollment({ agentId, installationId, paymentGrantCapNanodollars = null }) {
@@ -67,7 +74,6 @@ async function createOwnerEnrollment({ agentId, installationId, paymentGrantCapN
         merchantApplicationId: required("ALDER_SERVICES_MERCHANT_APPLICATION_ID"),
       },
     } : {}),
-    requiredServices: [],
     runtime: "managed-session",
   });
   return exchangeOwnerEnrollment(enrollment, installationId);
@@ -75,38 +81,86 @@ async function createOwnerEnrollment({ agentId, installationId, paymentGrantCapN
 
 /**
  * The owner establishes the first relationship in one encrypted enrollment.
- * Services first quotes the actual server-side hold from its live rate card using a
- * disposable ordinary enrollment. This launcher never writes an apg_ to disk
- * or state and never reproduces the settlement-reserve arithmetic locally.
+ * A conservative owner-selected cap bounds the one-use grant; Services then
+ * reads the exact live quote through that non-consuming grant before the same
+ * grant creates the first hold and pma_. The launcher never writes an apg_ to
+ * disk or state and never reproduces settlement-reserve arithmetic locally.
  */
 export async function ownerServiceEnrollment({ agentId, establish, installationId }) {
   if (!establish) return createOwnerEnrollment({ agentId, installationId });
 
-  const preflight = await createOwnerEnrollment({
-    agentId,
-    installationId: `${installationId}-admission-quote`,
-  });
-  let quote;
-  try {
-    quote = await quoteManagedSessionAdmission(preflight.controlCredentials.accessToken);
-  } finally {
-    await preflight.acknowledge();
-  }
-
   const established = await createOwnerEnrollment({
     agentId,
     installationId,
-    paymentGrantCapNanodollars: quote.paymentGrantCapNanodollars,
+    paymentGrantCapNanodollars: ownerInitialGrantCapNanodollars(),
   });
   const establishment = established.bundle.initialServicePayment;
   if (establish && (!establishment?.grant || establishment.merchantApplicationId !== process.env.ALDER_SERVICES_MERCHANT_APPLICATION_ID?.trim())) {
     throw new Error("owner enrollment did not contain the encrypted managed-session establishment grant");
   }
+  const quote = await quoteManagedSessionAdmission(establishment.grant);
+  if (BigInt(quote.paymentGrantCapNanodollars) > BigInt(ownerInitialGrantCapNanodollars())) {
+    throw new Error("Alder Services initial admission exceeds the owner-selected establishment grant cap");
+  }
   return {
     acknowledge: established.acknowledge,
     controlCredentials: established.controlCredentials,
-    establishmentGrant: establishment?.grant ?? null,
+    establishmentGrant: establishment.grant,
   };
+}
+
+/**
+ * A replacement hosted session needs a normal Services credential to admit
+ * work against an already-established relationship. The local launcher uses
+ * its short-lived Alder control credential only to obtain the one-use recovery
+ * proof; the resulting sat_ is deliberately ephemeral and is never written to
+ * local state. Once the session is live, the agent performs the same recovery
+ * itself and persists its own sat_ in its sandbox.
+ */
+export async function findExistingServicesConnection(controlCredentials) {
+  if (!controlCredentials?.accessToken) {
+    throw new Error("Alder control credential is required to read an existing Services connection");
+  }
+  const connections = await requestJson(`${alderUrl}/agent/merchant-connections`, {
+    headers: { authorization: `Bearer ${controlCredentials.accessToken}` },
+    method: "GET",
+  }, "read existing Alder Services connection");
+  const merchantApplicationId = required("ALDER_SERVICES_MERCHANT_APPLICATION_ID");
+  const connection = Array.isArray(connections?.items)
+    ? connections.items.find((item) => item?.merchantApplicationId === merchantApplicationId && item?.status === "active") ?? null
+    : null;
+  return connection?.pmaRef ? { pmaRef: connection.pmaRef } : null;
+}
+
+export async function recoverExistingServicesAccess(controlCredentials, knownConnection = null) {
+  if (!controlCredentials?.accessToken) {
+    throw new Error("Alder control credential is required to recover an existing Services connection");
+  }
+  const connection = knownConnection ?? await findExistingServicesConnection(controlCredentials);
+  if (!connection?.pmaRef) return null;
+
+  const proof = await requestJson(`${alderUrl}/agent/merchant-connections/${encodeURIComponent(connection.pmaRef)}/recovery-proofs`, {
+    headers: {
+      authorization: `Bearer ${controlCredentials.accessToken}`,
+      "content-type": "application/json",
+    },
+    method: "POST",
+  }, "create Alder Services recovery proof");
+  if (typeof proof?.proof !== "string" || !proof.proof.startsWith("prp_")) {
+    throw new Error("Alder did not return a valid one-use Services recovery proof");
+  }
+  const recovered = await requestJson(`${alderServicesUrl}/connections/recover`, {
+    body: JSON.stringify({ pmaRef: connection.pmaRef }),
+    headers: {
+      "content-type": "application/json",
+      "x-alder-connection-recovery-proof": proof.proof,
+    },
+    method: "POST",
+  }, "recover Alder Services access");
+  if (typeof recovered?.sat !== "string" || !recovered.sat.startsWith("sat_")) {
+    throw new Error("Alder Services did not return a valid recovered access token");
+  }
+  return { pmaRef: connection.pmaRef, sat: recovered.sat };
 }
 
 export { alderServicesUrl };
