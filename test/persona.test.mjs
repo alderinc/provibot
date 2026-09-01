@@ -13,9 +13,11 @@ test("standing persona uses engagement-only windows and deliberate response plac
   assert.match(prompt, /Do not price, discover, or spend before you assess activeSegment\.actionableRemaining and the live-derived activeSegment\.resizeThreshold/);
   assert.match(prompt, /Window allowance, windowConsumed, reservedForActiveWork, and availableForNewAdmission are distinct facts/);
   assert.match(prompt, /Maintain the Services-surfaced resize threshold throughout work/);
+  assert.match(prompt, /activeSegment\.minimumNextWindowAllowance/);
+  assert.match(prompt, /windowAllowance is aggregate, not an increment/);
   assert.match(prompt, /Never work the window to zero/);
   assert.match(prompt, /Before posting completion or returning idle after substantial work, re-check the named managed-session engagement/);
-  assert.match(prompt, /record its exact activeSegment\.actionableRemaining and activeSegment\.resizeThreshold/);
+  assert.match(prompt, /record its exact activeSegment\.actionableRemaining, activeSegment\.resizeThreshold, and activeSegment\.minimumNextWindowAllowance/);
   assert.match(prompt, /never report an allowance, cycle allocation, or parent-window value as remaining capacity/);
   assert.match(prompt, /The owner establishes the payment relationship and the agent may only increase its own managed-session usage window/);
   assert.match(prompt, /The only Services MCP capabilities mounted here are managed-session capacity inspection and deliberate managed-session increases/);
@@ -30,7 +32,8 @@ test("standing persona uses engagement-only windows and deliberate response plac
   assert.match(prompt, /multi-step paid work.*send a one-line Slack acknowledgement before the first paid call/);
   assert.match(prompt, /estimate the total against activeSegment\.actionableRemaining while preserving activeSegment\.resizeThreshold/);
   assert.match(prompt, /record the estimate, reference-class basis, actionable remaining, resize threshold, and decision in \/provi\/active-work\.md/);
-  assert.match(prompt, /deliberately use setUsageWindow to increase that same managed-session engagement/);
+  assert.match(prompt, /deliberately use setUsageWindow to set that same managed-session engagement to the displayed absolute allowance/);
+  assert.doesNotMatch(prompt, /twice its current windowAllowance/);
   assert.match(prompt, /a single durable rollover is already pending: do not issue another resize/);
   assert.match(prompt, /use its receipt endpoint for the actual captured amount/);
   assert.match(prompt, /Never ask a Slack participant for a supplier project ID/);
@@ -38,7 +41,7 @@ test("standing persona uses engagement-only windows and deliberate response plac
   assert.match(prompt, /report reconciliation_pending with its exact cause, payment reference or hold reference, and financial state/);
   assert.match(prompt, /never report it as "\$0 charged"/);
   assert.doesNotMatch(prompt, /cumulative Services window/);
-  assert.match(prompt, /If actionable remaining is at or below it, deliberately resize while the session can still reply/);
+  assert.match(prompt, /If actionable remaining is at or below it, obtain activeSegment\.minimumNextWindowAllowance and deliberately set the engagement to that absolute target while the session can still reply/);
   assert.doesNotMatch(prompt, /create a payment grant/);
   assert.match(prompt, /reply top-level by omitting thread_ts/);
   assert.match(prompt, /agent\.message is internal session output and is never shown in Slack/);
