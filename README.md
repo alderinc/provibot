@@ -79,7 +79,7 @@ For each relevant Slack event:
 3. The receiver deduplicates the event and places it on an Amazon SQS FIFO queue so ProVIBot activations are processed in order.
 4. The activation worker sends one normalized activation to ProVIBot.
 5. ProVIBot resumes the managed session associated with its identity.
-6. The session reads its policy, tools, memory, and credentials held in the Vault, then performs the work.
+6. The session reads its policy, tools, memory, and credentials from their designated stores, then performs the work.
 7. Any visible acknowledgement, progress update, blocker, or result is posted by ProVIBot through Slack MCP.
 
 The inbound receiver and the outbound Slack identity are deliberately separate. The receiver verifies and forwards events; it does not speak as ProVIBot. The managed session posts through the Slack user credential held in the Vault.
@@ -91,7 +91,7 @@ The inbound receiver and the outbound Slack identity are deliberately separate. 
 | Alder identity with wallet | The durable Alder identity that authenticates ProVIBot and provides its funding and usage state. The identity and wallet have distinct roles but cannot exist or operate independently. |
 | Alder Services | The Alder service offering that authorizes and admits work under the Alder identity, then activates the managed session. |
 | Managed agent session | The temporary Anthropic execution runtime, activated by Alder Services and returned to idle after work. |
-| Session connections and resources | Lets the session communicate through Slack and Alder, then use its native tools, durable memory, and Vault-held credentials. |
+| Session connections and resources | Lets the session communicate through Slack and Alder, then use its native tools, durable memory, and credentials from their designated stores. |
 | `slack-events/` | Verifies Slack signatures, deduplicates events, serializes delivery, and forwards bounded activations. |
 | This repository | Provisions, validates, renews, deploys, and stops the existing stack. |
 
@@ -151,7 +151,7 @@ vi .env
 | Slack request verification | `PROVIBOT_SLACK_SIGNING_SECRET` | Standing receiver only; verifies incoming Slack requests | Slack app **Basic Information**. |
 | Agent defaults | `PROVIBOT_AGENT_NAME`, `PROVIBOT_FUNDING_NANODOLLARS` | Optional | Local display name and initial funding defaults; the funding value is expressed in nanodollars. |
 
-If the deployment sits behind preview authentication, supply those credentials through the documented variables for that deployment.
+Local Basic configurations are separated by purpose: Alder operator access and local control access. Neither is supplied to the hosted agent or to provider calls.
 
 The repository ignores `.env` and `.local-state/`. Keep credentials in their intended stores:
 
@@ -218,10 +218,9 @@ Renew near that boundary or after a system policy revision:
 
 ```bash
 npm run renew
-npm start
 ```
 
-Renewal replaces the active session while preserving ProVIBot's identity, wallet, environment, Vault, and memory store. No new identity or activation authorization is required; both remain associated with ProVIBot.
+Renewal replaces the active session while preserving ProVIBot's identity, wallet, environment, Vault, and memory store. No new identity or activation authorization is required; both remain associated with ProVIBot. Run `npm start` separately when Slack authorization or launch configuration changes.
 
 ### Stop the hosted stack
 
@@ -252,7 +251,7 @@ These records are curated operational state, not chat logs. ProVIBot should not 
 - The receiver deduplicates and orders activations before they reach the managed session.
 - The receiver cannot post as ProVIBot. Visible Slack messages require the Slack MCP credential held in the Vault.
 - The local launcher synchronizes credentials but does not retain them in committed source.
-- The managed agent receives only the MCP servers and tools declared for it. Credentials remain separate in the Vault.
+- The managed agent receives only the MCP servers and tools declared for it. Credentials remain separate in their designated stores.
 - The launcher remains an operations tool. It does not acquire GitHub, CI, documentation, or credentials for particular tasks on behalf of the agent.
 
 ## Repository map
@@ -271,11 +270,11 @@ These records are curated operational state, not chat logs. ProVIBot should not 
 
 Add external capabilities through the managed agent boundary rather than through the launcher:
 
-1. Declare the MCP server and permitted tools on the managed agent configuration.
-2. Register the corresponding credential in the Anthropic Vault.
-3. Update the persona or operating policy only when the new tool changes expected behavior.
+1. Declare the required agent boundary, permitted network access, and designated credential store.
+2. Update the managed-agent configuration with the permitted tools and resources.
+3. Update the persona or operating policy only when the new capability changes expected behavior.
 4. Add focused tests for routing, permission, and failure behavior.
-5. Run `npm run check`, then `npm start`. Renew the session when the change requires a new session or follows a system policy revision.
+5. Run `npm run check`. Run `npm start` when Slack authorization or launch configuration needs synchronization; renew the session when the change requires a new session or follows a system policy revision.
 
 GitHub, CI, documentation, and other connectors should follow this pattern. The launcher should remain limited to provisioning and lifecycle operations; it should not accumulate task-specific integration logic or repository credentials.
 
