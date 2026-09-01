@@ -6,7 +6,8 @@ import { OrganizationClient, usdNanodollars } from "@alderinc/sdk";
 import { alderMcpUrl, alderServicesUrl, alderUrl } from "./endpoints.mjs";
 import { durableMemorySeeds, ensureDurableMemoryStructure } from "./durable-memory.mjs";
 import { persona } from "./persona.mjs";
-import { decryptEnrollment, managed, previewAuthHeader, refreshCredentials, requestJson, required } from "./shared.mjs";
+import { managed, refreshCredentials, required } from "./shared.mjs";
+import { ownerServiceEnrollment } from "./service-payment-enrollment.mjs";
 import { configureStandingRuntime } from "./standing-runtime.mjs";
 
 const servicesUrl = alderServicesUrl;
@@ -21,13 +22,8 @@ const slack = {
   userId: required("PROVIBOT_SLACK_USER_ID"),
 };
 const organization = new OrganizationClient({
-  coreUrl: alderUrl,
+  alderUrl,
   orgApiKey: required("ALDER_ORG_API_KEY"),
-  fetch: async (input, init = {}) => {
-    const headers = new Headers(init.headers);
-    for (const [name, value] of Object.entries(previewAuthHeader("ALDER_BASIC_AUTH_USERNAME", "ALDER_BASIC_AUTH_PASSWORD"))) headers.set(name, value);
-    return fetch(input, { ...init, headers });
-  },
 });
 let controlCredentials;
 let controlAgentId;
@@ -122,49 +118,18 @@ async function ensureControlFresh() {
   return controlCredentials.accessToken;
 }
 
-function managedServiceRequirement() {
-  // The enrollment audience must be the exact Services resource origin. A
-  // nearby browser or API URL can produce a valid-looking but unusable token.
-  return [{
-    role: "cognition",
-    resource: servicesResource,
-    restBaseUrl: servicesUrl,
-    mcpUrl: `${servicesUrl}/mcp`,
-    openAiBaseUrl: servicesUrl,
-    model: "claude-sonnet-5",
-    alderScopes: ["services:read", "services:write"],
-    readinessUrl: `${servicesUrl}/models`,
-  }];
-}
-
 async function recoverControlCredentials(agentId) {
-  const installationId = `provibot-control-${randomUUID()}`;
-  const enrollment = await organization.createRuntimeEnrollment({
+  const enrollment = await ownerServiceEnrollment({
     agentId,
-    accessTokenTtlSeconds: 900,
-    coreMcpUrl: alderMcpUrl,
-    expiresInSeconds: 300,
-    requiredServices: managedServiceRequirement(),
-    runtime: "managed-session",
+    establish: false,
+    installationId: `provibot-control-${randomUUID()}`,
   });
-  const exchanged = await requestJson(`${alderUrl}/runtime-enrollments/exchange`, {
-    method: "POST",
-    headers: { "content-type": "application/json", ...previewAuthHeader("ALDER_BASIC_AUTH_USERNAME", "ALDER_BASIC_AUTH_PASSWORD") },
-    body: JSON.stringify({ enrollmentId: enrollment.enrollmentId, enrollmentSecret: enrollment.enrollmentSecret, installationId }),
-  }, "recover ProVIBot control credential");
-  const bundle = decryptEnrollment(enrollment.enrollmentSecret, installationId, exchanged.encryptedBundle);
-  const credentials = bundle.credentials.services?.[0]?.credentials?.model;
-  if (!credentials?.accessToken || !credentials.refreshToken) throw new Error("recovered enrollment did not contain a renewable Services control credential");
-  await requestJson(`${alderUrl}/runtime-enrollments/${encodeURIComponent(enrollment.enrollmentId)}/ack`, {
-    method: "POST",
-    headers: { "content-type": "application/json", ...previewAuthHeader("ALDER_BASIC_AUTH_USERNAME", "ALDER_BASIC_AUTH_PASSWORD") },
-    body: JSON.stringify({ enrollmentId: enrollment.enrollmentId, enrollmentSecret: enrollment.enrollmentSecret, installationId }),
-  }, "acknowledge recovered ProVIBot control credential");
-  return credentials;
+  await enrollment.acknowledge();
+  return enrollment.controlCredentials;
 }
 
-async function managedControl(method, path, body, idempotencyKey) {
-  return managed(method, path, await ensureControlFresh(), body, idempotencyKey);
+async function managedControl(method, path, body, idempotencyKey, headers) {
+  return managed(method, path, await ensureControlFresh(), body, idempotencyKey, headers);
 }
 
 function tokenFingerprint(token) {
@@ -216,7 +181,7 @@ async function applyStandingAgentPersona(state) {
   // Keep the hosted agent and its active session on the same tool/policy
   // contract. A changed policy is recorded below and takes effect only through
   // the explicit renewal path; launch must not silently replace a live session.
-  return configureStandingRuntime({ alderMcpUrl, control: managedControl, state });
+  return configureStandingRuntime({ alderMcpUrl, alderServicesUrl, control: managedControl, state });
 }
 
 async function createHostedStack() {
@@ -226,25 +191,19 @@ async function createHostedStack() {
   const runId = `provi-${new Date().toISOString().replace(/\D/g, "").slice(0, 14)}-${randomUUID().slice(0, 8)}`;
   const agent = await ensureExistingAgent();
   await organization.fundAgent({ agentId: agent.agentId, amountUsd: money(process.env.PROVIBOT_FUNDING_NANODOLLARS ?? "25000000000"), idempotencyKey: `provibot:${agent.agentId}:initial-funding:v1` });
-  const enrollment = await organization.createRuntimeEnrollment({
-    agentId: agent.agentId, accessTokenTtlSeconds: 900, coreMcpUrl: alderMcpUrl, expiresInSeconds: 300,
-    requiredServices: managedServiceRequirement(), runtime: "managed-session",
+  const enrollment = await ownerServiceEnrollment({
+    agentId: agent.agentId,
+    establish: true,
+    installationId: `provibot-${runId}`,
   });
-  const installationId = `provibot-${runId}`;
-  const exchanged = await requestJson(`${alderUrl}/runtime-enrollments/exchange`, {
-    method: "POST", headers: { "content-type": "application/json", ...previewAuthHeader("ALDER_BASIC_AUTH_USERNAME", "ALDER_BASIC_AUTH_PASSWORD") },
-    body: JSON.stringify({ enrollmentId: enrollment.enrollmentId, enrollmentSecret: enrollment.enrollmentSecret, installationId }),
-  }, "runtime enrollment exchange");
-  const bundle = decryptEnrollment(enrollment.enrollmentSecret, installationId, exchanged.encryptedBundle);
-  const service = bundle.credentials.services[0];
-  controlCredentials = { ...service.credentials.model };
+  controlCredentials = { ...enrollment.controlCredentials };
   await writePrivateJson(authPath, controlCredentials);
   const created = [];
   try {
     const vault = await managedControl("POST", "/vaults", { display_name: "ProVIBot", metadata: { provibotRunId: runId } }, `${runId}:vault`);
     created.push(["vaults", vault.id]);
-    const { coreMcp: alderMcpCredentials } = bundle.credentials;
-    for (const [credentials, url] of [[alderMcpCredentials, alderMcpUrl]]) {
+    const alderMcpCredentials = enrollment.controlCredentials;
+    for (const [credentials, url] of [[alderMcpCredentials, alderMcpUrl], [alderMcpCredentials, `${servicesUrl}/mcp`]]) {
       const credential = await managedControl("POST", `/vaults/${vault.id}/credentials`, mcpCredential(credentials, url, runId), `${runId}:mcp:${created.length}`);
       created.push([`vaults/${vault.id}/credentials`, credential.id]);
       await managedControl("POST", `/vaults/${vault.id}/credentials/${credential.id}/mcp_oauth_validate`, {}, `${runId}:mcp-validate:${credential.id}`);
@@ -259,12 +218,12 @@ async function createHostedStack() {
     }
     const environment = await managedControl("POST", "/environments", { name: "ProVIBot", config: { type: "cloud", networking: { type: "limited", allowed_hosts: [new URL(alderMcpUrl).hostname, new URL(servicesUrl).hostname, "mcp.slack.com"].sort(), allow_mcp_servers: true, allow_package_managers: false } }, metadata: { provibotRunId: runId } }, `${runId}:environment`);
     created.push(["environments", environment.id]);
-    const mcpServers = managedMcpServers({ alderMcpUrl });
+    const mcpServers = managedMcpServers({ alderMcpUrl, alderServicesUrl });
     const hostedAgent = await managedControl("POST", "/agents", { name: "ProVIBot", model: "claude-sonnet-5", mcp_servers: mcpServers, tools: fullManagedAgentTools(mcpServers), system: persona(), metadata: { provibotRunId: runId } }, `${runId}:agent`);
     created.push(["agents", hostedAgent.id]);
-    const session = await managedControl("POST", "/sessions", { agent: hostedAgent.id, environment_id: environment.id, vault_ids: [vault.id], resources: [{ type: "memory_store", memory_store_id: memory.id, access: "read_write", instructions: "Read this durable task record before work and update it after meaningful progress or completion." }], metadata: { provibotRunId: runId }, title: "ProVIBot" }, `${runId}:session`);
+    const session = await managedControl("POST", "/sessions", { agent: hostedAgent.id, environment_id: environment.id, vault_ids: [vault.id], resources: [{ type: "memory_store", memory_store_id: memory.id, access: "read_write", instructions: "Read this durable task record before work and update it after meaningful progress or completion." }], metadata: { provibotRunId: runId }, title: "ProVIBot" }, `${runId}:session`, { "x-alder-payment-grant": enrollment.establishmentGrant });
     created.push(["sessions", session.id]);
-    await requestJson(`${alderUrl}/runtime-enrollments/${encodeURIComponent(enrollment.enrollmentId)}/ack`, { method: "POST", headers: { "content-type": "application/json", ...previewAuthHeader("ALDER_BASIC_AUTH_USERNAME", "ALDER_BASIC_AUTH_PASSWORD") }, body: JSON.stringify({ enrollmentId: enrollment.enrollmentId, enrollmentSecret: enrollment.enrollmentSecret, installationId }) }, "runtime enrollment acknowledgment");
+    await enrollment.acknowledge();
     return {
       alderAgentId: agent.agentId,
       runId,
@@ -273,6 +232,7 @@ async function createHostedStack() {
       lessonsReferenceClassVersion: 1,
       memoryStructureVersion: 2,
       slackCredentialFingerprint: tokenFingerprint(slack.accessToken),
+      serviceConnectionEstablishedAt: new Date().toISOString(),
       standingPersonaHash: createHash("sha256").update(persona()).digest("hex").slice(0, 16),
     };
   } catch (error) {

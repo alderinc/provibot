@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { alderMcpUrl } from "../src/endpoints.mjs";
+import { alderMcpUrl, alderServicesUrl } from "../src/endpoints.mjs";
 import { configureStandingRuntime } from "../src/standing-runtime.mjs";
 
 test("a replacement session receives the same mounted tool contract as its agent", async () => {
@@ -9,6 +9,7 @@ test("a replacement session receives the same mounted tool contract as its agent
   const state = { hosted: { agentId: "agent_123", sessionId: "session_456" }, runId: "run_789" };
   const hash = await configureStandingRuntime({
     alderMcpUrl,
+    alderServicesUrl,
     control: async (...call) => calls.push(call),
     state,
   });

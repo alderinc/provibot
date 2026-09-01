@@ -46,8 +46,7 @@ async function configuration() {
   const config = JSON.parse(value.SecretString);
   for (const name of [
     "activationClientId", "activationClientSecret", "activationRedirectUri", "agentId", "alderOrigin",
-    "alderPreviewBasicPassword", "alderPreviewBasicUsername", "generalChannelId", "servicesOrigin",
-    "servicesLegacyControlBasicPassword", "servicesLegacyControlBasicUsername", "serviceUserId", "slackSigningSecret", "teamId",
+    "generalChannelId", "servicesOrigin", "serviceUserId", "slackSigningSecret", "teamId",
   ]) if (typeof config[name] !== "string" || !config[name]) throw new Error(`activation configuration ${name} is invalid`);
   secretCache = config;
   return config;
@@ -99,7 +98,6 @@ async function exchange(config, body) {
     headers: {
       authorization: basic(config.activationClientId, config.activationClientSecret),
       "content-type": "application/x-www-form-urlencoded",
-      "x-alder-preview-authorization": basic(config.alderPreviewBasicUsername, config.alderPreviewBasicPassword),
     },
     method: "POST",
   });
@@ -118,10 +116,7 @@ async function initialTokens(config) {
   authorization.searchParams.set("scope", "managed-sessions:events:write");
   authorization.searchParams.set("code_challenge", challenge);
   authorization.searchParams.set("code_challenge_method", "S256");
-  const response = await fetch(authorization, {
-    headers: { "x-alder-preview-authorization": basic(config.alderPreviewBasicUsername, config.alderPreviewBasicPassword) },
-    redirect: "manual",
-  });
+  const response = await fetch(authorization, { redirect: "manual" });
   const location = response.headers.get("location");
   if (response.status !== 302 || !location) throw new Error(`activation authorization failed (${response.status})`);
   const code = new URL(location).searchParams.get("code");
@@ -162,9 +157,6 @@ async function deliver(candidate, config) {
       authorization: `Bearer ${await activationAccessToken(config)}`,
       "content-type": "application/json",
       "idempotency-key": `slack:${candidate.eventId}`,
-      // This is the one temporary Services Basic fallback: the receiver's
-      // bounded /agent-instances activation handoff. It is not agent config.
-      "x-alder-preview-authorization": basic(config.servicesLegacyControlBasicUsername, config.servicesLegacyControlBasicPassword),
     },
     method: "POST",
   });
