@@ -41,20 +41,14 @@ export async function requestJson(url, init, label) {
   return payload;
 }
 
-export function legacyManagedControlHeaders(accessToken, idempotencyKey) {
-  const basic = Buffer.from(`${required("ALDER_SERVICES_LEGACY_CONTROL_BASIC_AUTH_USERNAME")}:${required("ALDER_SERVICES_LEGACY_CONTROL_BASIC_AUTH_PASSWORD")}`).toString("base64");
+export function managedControlHeaders(accessToken, idempotencyKey, extra = {}) {
   return {
     accept: "application/json",
     authorization: `Bearer ${accessToken}`,
     "content-type": "application/json",
-    "x-alder-preview-authorization": `Basic ${basic}`,
     ...(idempotencyKey ? { "idempotency-key": idempotencyKey } : {}),
+    ...extra,
   };
-}
-
-export function previewAuthHeader(usernameName, passwordName) {
-  const basic = Buffer.from(`${required(usernameName)}:${required(passwordName)}`).toString("base64");
-  return { "x-alder-preview-authorization": `Basic ${basic}` };
 }
 
 export async function refreshCredentials(credentials) {
@@ -71,7 +65,6 @@ export async function refreshCredentials(credentials) {
     headers: {
       authorization: `Basic ${basic}`,
       "content-type": "application/x-www-form-urlencoded",
-      ...previewAuthHeader("ALDER_BASIC_AUTH_USERNAME", "ALDER_BASIC_AUTH_PASSWORD"),
     },
     body,
   }, "refresh Alder control credential");
@@ -83,12 +76,10 @@ export async function refreshCredentials(credentials) {
   };
 }
 
-export async function managed(method, path, accessToken, body, idempotencyKey) {
+export async function managed(method, path, accessToken, body, idempotencyKey, headers = {}) {
   return requestJson(`${alderServicesUrl}/agent-instances${path}`, {
     method,
-    // The temporary Basic fallback is limited to this retiring control family.
-    // Provider, connection, discovery, and MCP requests never receive it.
-    headers: legacyManagedControlHeaders(accessToken, idempotencyKey),
+    headers: managedControlHeaders(accessToken, idempotencyKey, headers),
     body: body === undefined ? undefined : JSON.stringify(body),
   }, `${method} ${path}`);
 }

@@ -1,8 +1,9 @@
 import { readFile, rename, writeFile } from "node:fs/promises";
 
-import { alderMcpUrl } from "./endpoints.mjs";
+import { alderMcpUrl, alderServicesUrl, alderUrl } from "./endpoints.mjs";
 import { ensureDurableMemoryStructure } from "./durable-memory.mjs";
-import { managed, refreshCredentials } from "./shared.mjs";
+import { managed, refreshCredentials, requestJson, required } from "./shared.mjs";
+import { ownerServiceEnrollment } from "./service-payment-enrollment.mjs";
 import { configureStandingRuntime } from "./standing-runtime.mjs";
 
 const stateUrl = new URL("../.local-state/provibot.json", import.meta.url);
@@ -33,8 +34,43 @@ async function control(method, path, body, idempotencyKey) {
   return managed(method, path, await controlToken(), body, idempotencyKey);
 }
 
+async function currentServiceConnection() {
+  const payload = await requestJson(`${alderUrl}/agent/merchant-connections`, {
+    headers: { authorization: `Bearer ${await controlToken()}` },
+    method: "GET",
+  }, "read existing Alder Services connection");
+  const merchantApplicationId = required("ALDER_SERVICES_MERCHANT_APPLICATION_ID");
+  return Array.isArray(payload?.items)
+    ? payload.items.find((item) => item?.merchantApplicationId === merchantApplicationId && item?.status === "active") ?? null
+    : null;
+}
+
 if (!state?.alderAgentId || !state?.hosted?.agentId || !state?.hosted?.environmentId || !state?.hosted?.memoryStoreId || !state?.hosted?.sessionId || !state?.hosted?.vaultId) {
   throw new Error("ProVIBot hosted state is incomplete; refusing to renew into a second identity");
+}
+
+// Owner-side renewal first obtains an ordinary Alder credential. It is used
+// only to discover whether the persistent relationship already exists; this
+// never lets the agent establish its own first pma_.
+const ownerEnrollment = await ownerServiceEnrollment({
+  agentId: state.alderAgentId,
+  establish: false,
+  installationId: `provibot-renew-control-${Date.now()}`,
+});
+credentials = ownerEnrollment.controlCredentials;
+await writeFile(authUrl, `${JSON.stringify(credentials)}\n`, { mode: 0o600 });
+const existingConnection = await currentServiceConnection();
+let establishment = null;
+if (!existingConnection) {
+  // This is the one owner-only bootstrap for a pre-connection deployment.
+  // The raw grant remains solely inside this short-lived encrypted bundle.
+  establishment = await ownerServiceEnrollment({
+    agentId: state.alderAgentId,
+    establish: true,
+    installationId: `provibot-renew-establish-${Date.now()}`,
+  });
+  credentials = establishment.controlCredentials;
+  await writeFile(authUrl, `${JSON.stringify(credentials)}\n`, { mode: 0o600 });
 }
 
 const seeded = await ensureDurableMemoryStructure({ control, state });
@@ -59,14 +95,18 @@ if (renewal.state !== "closed") throw new Error(`ProVIBot session renewal checkp
 // Create the replacement only after final capture/release for the prior
 // session completes. The Alder agent, wallet, Vault, environment, and memory
 // store stay constant across this deliberately explicit session boundary.
-const session = await control("POST", "/sessions", {
+const session = await managed("POST", "/sessions", await controlToken(), {
   agent: state.hosted.agentId,
   environment_id: state.hosted.environmentId,
   vault_ids: [state.hosted.vaultId],
   resources: [{ type: "memory_store", memory_store_id: state.hosted.memoryStoreId, access: "read_write", instructions: "Read this durable task record before work and update it after meaningful progress or completion." }],
   metadata: { provibotRunId: state.runId },
   title: "ProVIBot",
-}, `provibot:${state.runId}:renew:${renewal.previousSessionId}:session`);
+}, `provibot:${state.runId}:renew:${renewal.previousSessionId}:session`, establishment?.establishmentGrant
+  ? { "x-alder-payment-grant": establishment.establishmentGrant }
+  : {});
+await ownerEnrollment.acknowledge();
+if (establishment) await establishment.acknowledge();
 
 const replacement = { ...state, hosted: { ...state.hosted, sessionId: session.id } };
 // A session replacement starts without the mounted MCP/tool declaration.
@@ -74,6 +114,7 @@ const replacement = { ...state, hosted: { ...state.hosted, sessionId: session.id
 // a failed configuration remains recoverable through the same creation key.
 const standingPersonaHash = await configureStandingRuntime({
   alderMcpUrl,
+  alderServicesUrl,
   control,
   state: replacement,
 });
@@ -85,6 +126,7 @@ await writeState({
   pendingPersonaHash: undefined,
   previousSessionId: renewal.previousSessionId,
   renewedAt: new Date().toISOString(),
+  ...(establishment ? { serviceConnectionEstablishedAt: new Date().toISOString() } : {}),
   sessionRenewal: undefined,
 });
 

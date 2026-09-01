@@ -145,13 +145,13 @@ vi .env
 | Group | Variables | When required | Obtain from |
 | --- | --- | --- | --- |
 | Organization | `ALDER_ORG_API_KEY` | Normal launch and operation | The organization that owns ProVIBot. |
-| ProVIBot connection | See [`.env.example`](.env.example) | Normal launch, activation, and managed agent tools | The configuration provided for the deployment. |
+| First Services connection | `ALDER_SERVICES_MERCHANT_APPLICATION_ID`, `PROVIBOT_INITIAL_MANAGED_SESSION_NANODOLLARS` | First launch or renewal of a pre-connection deployment | The approved Services merchant application and the owner-selected initial managed-session amount. |
 | Slack user OAuth | `PROVIBOT_SLACK_ACCESS_TOKEN`, `PROVIBOT_SLACK_CLIENT_ID`, `PROVIBOT_SLACK_CLIENT_SECRET` | Slack MCP authorization; the client secret is needed only for a confidential client | `npm run authorize-slack` and the Slack app configuration. |
 | Slack routing | `PROVIBOT_SLACK_TEAM_ID`, `PROVIBOT_SLACK_USER_ID`, `PROVIBOT_SLACK_CHANNEL_ID` | Normal event routing | Slack workspace, ProVIBot user, and configured ambient-channel metadata. |
 | Slack request verification | `PROVIBOT_SLACK_SIGNING_SECRET` | Standing receiver only; verifies incoming Slack requests | Slack app **Basic Information**. |
 | Agent defaults | `PROVIBOT_AGENT_NAME`, `PROVIBOT_FUNDING_NANODOLLARS` | Optional | Local display name and initial funding defaults; the funding value is expressed in nanodollars. |
 
-Local Basic configurations are separated by purpose: Alder operator access and local control access. Neither is supplied to the hosted agent or to provider calls.
+The owner establishes ProVIBot's first Alder Services payment relationship during launch. The establishment grant exists only in an encrypted enrollment handoff. The hosted agent later recovers its own Services access token through its existing Alder connection and stores that token only in its sandbox `.env`.
 
 The repository ignores `.env` and `.local-state/`. Keep credentials in their intended stores:
 
@@ -220,7 +220,7 @@ Renew near that boundary or after a system policy revision:
 npm run renew
 ```
 
-Renewal replaces the active session while preserving ProVIBot's identity, wallet, environment, Vault, and memory store. No new identity or activation authorization is required; both remain associated with ProVIBot. Run `npm start` separately when Slack authorization or launch configuration changes.
+Renewal replaces the active session while preserving ProVIBot's identity, wallet, environment, Vault, and memory store. No new identity or activation authorization is required; both remain associated with ProVIBot. For an older deployment without an Alder Services connection, the owner-side renewal performs the one-time establishment through the encrypted enrollment handoff. Run `npm start` separately when Slack authorization or launch configuration changes.
 
 ### Stop the hosted stack
 
