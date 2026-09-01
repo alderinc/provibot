@@ -216,7 +216,7 @@ async function applyStandingAgentPersona(state) {
   // Keep the hosted agent and its active session on the same tool/policy
   // contract. A changed policy is recorded below and takes effect only through
   // the explicit renewal path; launch must not silently replace a live session.
-  return configureStandingRuntime({ alderMcpUrl, control: managedControl, servicesUrl, state });
+  return configureStandingRuntime({ alderMcpUrl, control: managedControl, state });
 }
 
 async function createHostedStack() {
@@ -244,7 +244,7 @@ async function createHostedStack() {
     const vault = await managedControl("POST", "/vaults", { display_name: "ProVIBot", metadata: { provibotRunId: runId } }, `${runId}:vault`);
     created.push(["vaults", vault.id]);
     const { coreMcp: alderMcpCredentials } = bundle.credentials;
-    for (const [credentials, url] of [[alderMcpCredentials, alderMcpUrl], [service.credentials.mcp, `${servicesUrl}/mcp`]]) {
+    for (const [credentials, url] of [[alderMcpCredentials, alderMcpUrl]]) {
       const credential = await managedControl("POST", `/vaults/${vault.id}/credentials`, mcpCredential(credentials, url, runId), `${runId}:mcp:${created.length}`);
       created.push([`vaults/${vault.id}/credentials`, credential.id]);
       await managedControl("POST", `/vaults/${vault.id}/credentials/${credential.id}/mcp_oauth_validate`, {}, `${runId}:mcp-validate:${credential.id}`);
@@ -259,7 +259,7 @@ async function createHostedStack() {
     }
     const environment = await managedControl("POST", "/environments", { name: "ProVIBot", config: { type: "cloud", networking: { type: "limited", allowed_hosts: [new URL(alderMcpUrl).hostname, new URL(servicesUrl).hostname, "mcp.slack.com"].sort(), allow_mcp_servers: true, allow_package_managers: false } }, metadata: { provibotRunId: runId } }, `${runId}:environment`);
     created.push(["environments", environment.id]);
-    const mcpServers = managedMcpServers({ alderMcpUrl, servicesUrl });
+    const mcpServers = managedMcpServers({ alderMcpUrl });
     const hostedAgent = await managedControl("POST", "/agents", { name: "ProVIBot", model: "claude-sonnet-5", mcp_servers: mcpServers, tools: fullManagedAgentTools(mcpServers), system: persona(), metadata: { provibotRunId: runId } }, `${runId}:agent`);
     created.push(["agents", hostedAgent.id]);
     const session = await managedControl("POST", "/sessions", { agent: hostedAgent.id, environment_id: environment.id, vault_ids: [vault.id], resources: [{ type: "memory_store", memory_store_id: memory.id, access: "read_write", instructions: "Read this durable task record before work and update it after meaningful progress or completion." }], metadata: { provibotRunId: runId }, title: "ProVIBot" }, `${runId}:session`);

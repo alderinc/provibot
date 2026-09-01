@@ -11,10 +11,9 @@ export const fullAgentToolNames = Object.freeze([
 
 const alwaysAllow = Object.freeze({ type: "always_allow" });
 
-export function managedMcpServers({ alderMcpUrl, servicesUrl }) {
+export function managedMcpServers({ alderMcpUrl }) {
   return [
     { name: "alder", type: "url", url: alderMcpUrl },
-    { name: "alder-services", type: "url", url: `${servicesUrl}/mcp` },
     { name: "slack", type: "url", url: "https://mcp.slack.com/mcp" },
   ];
 }

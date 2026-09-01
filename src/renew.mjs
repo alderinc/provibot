@@ -1,6 +1,6 @@
 import { readFile, rename, writeFile } from "node:fs/promises";
 
-import { alderMcpUrl, alderServicesUrl } from "./endpoints.mjs";
+import { alderMcpUrl } from "./endpoints.mjs";
 import { ensureDurableMemoryStructure } from "./durable-memory.mjs";
 import { managed, refreshCredentials } from "./shared.mjs";
 import { configureStandingRuntime } from "./standing-runtime.mjs";
@@ -10,7 +10,6 @@ const pendingStateUrl = new URL("../.local-state/provibot.json.renewing", import
 const authUrl = new URL("../.local-state/provibot-auth.json", import.meta.url);
 let state = JSON.parse(await readFile(stateUrl, "utf8"));
 let credentials = JSON.parse(await readFile(authUrl, "utf8"));
-const servicesUrl = alderServicesUrl;
 
 async function writeState(next) {
   // Persist each renewal transition atomically. If the process stops between
@@ -76,7 +75,6 @@ const replacement = { ...state, hosted: { ...state.hosted, sessionId: session.id
 const standingPersonaHash = await configureStandingRuntime({
   alderMcpUrl,
   control,
-  servicesUrl,
   state: replacement,
 });
 

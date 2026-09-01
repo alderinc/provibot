@@ -41,8 +41,8 @@ export async function requestJson(url, init, label) {
   return payload;
 }
 
-export function serviceHeaders(accessToken, idempotencyKey) {
-  const basic = Buffer.from(`${required("ALDER_SERVICES_BASIC_AUTH_USERNAME")}:${required("ALDER_SERVICES_BASIC_AUTH_PASSWORD")}`).toString("base64");
+export function legacyManagedControlHeaders(accessToken, idempotencyKey) {
+  const basic = Buffer.from(`${required("ALDER_SERVICES_LEGACY_CONTROL_BASIC_AUTH_USERNAME")}:${required("ALDER_SERVICES_LEGACY_CONTROL_BASIC_AUTH_PASSWORD")}`).toString("base64");
   return {
     accept: "application/json",
     authorization: `Bearer ${accessToken}`,
@@ -86,7 +86,9 @@ export async function refreshCredentials(credentials) {
 export async function managed(method, path, accessToken, body, idempotencyKey) {
   return requestJson(`${alderServicesUrl}/agent-instances${path}`, {
     method,
-    headers: serviceHeaders(accessToken, idempotencyKey),
+    // The temporary Basic fallback is limited to this retiring control family.
+    // Provider, connection, discovery, and MCP requests never receive it.
+    headers: legacyManagedControlHeaders(accessToken, idempotencyKey),
     body: body === undefined ? undefined : JSON.stringify(body),
   }, `${method} ${path}`);
 }

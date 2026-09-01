@@ -47,7 +47,7 @@ async function configuration() {
   for (const name of [
     "activationClientId", "activationClientSecret", "activationRedirectUri", "agentId", "alderOrigin",
     "alderPreviewBasicPassword", "alderPreviewBasicUsername", "generalChannelId", "servicesOrigin",
-    "servicesPreviewBasicPassword", "servicesPreviewBasicUsername", "serviceUserId", "slackSigningSecret", "teamId",
+    "servicesLegacyControlBasicPassword", "servicesLegacyControlBasicUsername", "serviceUserId", "slackSigningSecret", "teamId",
   ]) if (typeof config[name] !== "string" || !config[name]) throw new Error(`activation configuration ${name} is invalid`);
   secretCache = config;
   return config;
@@ -162,7 +162,9 @@ async function deliver(candidate, config) {
       authorization: `Bearer ${await activationAccessToken(config)}`,
       "content-type": "application/json",
       "idempotency-key": `slack:${candidate.eventId}`,
-      "x-alder-preview-authorization": basic(config.servicesPreviewBasicUsername, config.servicesPreviewBasicPassword),
+      // This is the one temporary Services Basic fallback: the receiver's
+      // bounded /agent-instances activation handoff. It is not agent config.
+      "x-alder-preview-authorization": basic(config.servicesLegacyControlBasicUsername, config.servicesLegacyControlBasicPassword),
     },
     method: "POST",
   });

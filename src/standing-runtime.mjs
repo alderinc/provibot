@@ -9,10 +9,10 @@ import { persona } from "./persona.mjs";
  * implicitly, so renewal must call this before it becomes the durable target
  * for Slack activation.
  */
-export async function configureStandingRuntime({ alderMcpUrl, control, servicesUrl, state }) {
+export async function configureStandingRuntime({ alderMcpUrl, control, state }) {
   const system = persona();
   const systemHash = createHash("sha256").update(system).digest("hex").slice(0, 16);
-  const mcpServers = managedMcpServers({ alderMcpUrl, servicesUrl });
+  const mcpServers = managedMcpServers({ alderMcpUrl });
   const tools = fullManagedAgentTools(mcpServers);
   await control(
     "POST",
