@@ -16,12 +16,16 @@ test("ProVIBot mounts only the read-only Services capacity capability", () => {
 });
 
 test("owner establishment stays in the encrypted enrollment handoff", async () => {
-  const [run, enrollment, renew, shared] = await Promise.all([
+  const [manifest, lockfile, run, enrollment, renew, shared] = await Promise.all([
+    readFile("package.json", "utf8"),
+    readFile("package-lock.json", "utf8"),
     readFile("src/run.mjs", "utf8"),
     readFile("src/service-payment-enrollment.mjs", "utf8"),
     readFile("src/renew.mjs", "utf8"),
     readFile("src/shared.mjs", "utf8"),
   ]);
+  assert.match(manifest, /"@alderinc\/sdk": "0\.1\.4"/);
+  assert.match(lockfile, /"version": "0\.1\.4"/);
   assert.match(enrollment, /initialServicePayment/);
   assert.match(enrollment, /initialServicePayment: initialManagedSessionPayment/);
   assert.match(run, /x-alder-payment-grant/);
