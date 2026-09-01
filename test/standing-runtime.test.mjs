@@ -10,7 +10,6 @@ test("a replacement session receives the same mounted tool contract as its agent
   const hash = await configureStandingRuntime({
     alderMcpUrl,
     control: async (...call) => calls.push(call),
-    servicesUrl: "https://services.alder.exchange",
     state,
   });
   assert.match(hash, /^[a-f0-9]{16}$/);
