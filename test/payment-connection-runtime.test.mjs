@@ -27,7 +27,13 @@ test("owner establishment stays in the encrypted enrollment handoff", async () =
   assert.match(manifest, /"@alderinc\/sdk": "0\.1\.4"/);
   assert.match(lockfile, /"version": "0\.1\.4"/);
   assert.match(enrollment, /initialServicePayment/);
-  assert.match(enrollment, /initialServicePayment: initialManagedSessionPayment/);
+  assert.match(enrollment, /quoteManagedSessionAdmission/);
+  assert.match(enrollment, /agent-instances\/admission-quote/);
+  assert.match(enrollment, /paymentGrantCapNanodollars/);
+  assert.match(enrollment, /does not cover the complete first Core hold/);
+  assert.match(enrollment, /installationId: `\$\{installationId\}-admission-quote`/);
+  assert.match(enrollment, /await preflight\.acknowledge\(\)/);
+  assert.doesNotMatch(enrollment, /PROVIBOT_INITIAL_MANAGED_SESSION_NANODOLLARS/);
   assert.match(run, /x-alder-payment-grant/);
   assert.match(run, /serviceConnectionEstablishedAt/);
   assert.match(enrollment, /bundle\.credentials\?\.alderMcp/);

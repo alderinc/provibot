@@ -3,17 +3,6 @@ import { OrganizationClient, usdNanodollars } from "@alderinc/sdk";
 import { alderMcpUrl, alderServicesUrl, alderUrl } from "./endpoints.mjs";
 import { decryptEnrollment, requestJson, required } from "./shared.mjs";
 
-function initialManagedSessionPayment() {
-  const amount = required("PROVIBOT_INITIAL_MANAGED_SESSION_NANODOLLARS");
-  if (!/^\d+$/.test(amount) || BigInt(amount) <= 0n) {
-    throw new Error("PROVIBOT_INITIAL_MANAGED_SESSION_NANODOLLARS must be a positive integer nanodollar amount");
-  }
-  return {
-    amountUsd: usdNanodollars(BigInt(amount)),
-    merchantApplicationId: required("ALDER_SERVICES_MERCHANT_APPLICATION_ID"),
-  };
-}
-
 function ownerOrganization() {
   return new OrganizationClient({
     alderUrl,
@@ -21,20 +10,14 @@ function ownerOrganization() {
   });
 }
 
-/**
- * The owner creates an enrollment and Alder places any establish grant only in
- * its encrypted bundle.  This launcher never writes an apg_ to disk or state.
- */
-export async function ownerServiceEnrollment({ agentId, establish, installationId }) {
-  const enrollment = await ownerOrganization().createRuntimeEnrollment({
-    agentId,
-    accessTokenTtlSeconds: 900,
-    alderMcpUrl,
-    expiresInSeconds: 300,
-    ...(establish ? { initialServicePayment: initialManagedSessionPayment() } : {}),
-    requiredServices: [],
-    runtime: "managed-session",
-  });
+function assertPositiveNanodollars(value, field) {
+  if (typeof value !== "string" || !/^[1-9][0-9]*$/.test(value)) {
+    throw new Error(`Alder Services admission quote returned an invalid ${field}`);
+  }
+  return value;
+}
+
+async function exchangeOwnerEnrollment(enrollment, installationId) {
   const exchanged = await requestJson(`${alderUrl}/runtime-enrollments/exchange`, {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -45,17 +28,83 @@ export async function ownerServiceEnrollment({ agentId, establish, installationI
   if (!credentials?.accessToken || !credentials?.refreshToken) {
     throw new Error("runtime enrollment did not contain renewable Alder control credentials");
   }
-  const establishment = bundle.initialServicePayment;
-  if (establish && (!establishment?.grant || establishment.merchantApplicationId !== process.env.ALDER_SERVICES_MERCHANT_APPLICATION_ID?.trim())) {
-    throw new Error("owner enrollment did not contain the encrypted managed-session establishment grant");
-  }
   return {
-    acknowledge: async () => requestJson(`${alderUrl}/runtime-enrollments/${encodeURIComponent(enrollment.enrollmentId)}/ack`, {
+    acknowledge: () => requestJson(`${alderUrl}/runtime-enrollments/${encodeURIComponent(enrollment.enrollmentId)}/ack`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ enrollmentId: enrollment.enrollmentId, enrollmentSecret: enrollment.enrollmentSecret, installationId }),
     }, "runtime enrollment acknowledgment"),
+    bundle,
     controlCredentials: credentials,
+  };
+}
+
+async function quoteManagedSessionAdmission(agentAccessToken) {
+  const quote = await requestJson(`${alderServicesUrl}/agent-instances/admission-quote`, {
+    headers: { authorization: `Bearer ${agentAccessToken}` },
+  }, "managed-session admission quote");
+  if (quote?.route !== "anthropic.managed.sessions" || typeof quote?.rateCardVersion !== "string") {
+    throw new Error("Alder Services admission quote did not identify the managed-session rate card");
+  }
+  const engagementWindowNanodollars = assertPositiveNanodollars(quote.engagementWindowNanodollars, "engagementWindowNanodollars");
+  const settlementReserveNanodollars = assertPositiveNanodollars(quote.settlementReserveNanodollars, "settlementReserveNanodollars");
+  const paymentGrantCapNanodollars = assertPositiveNanodollars(quote.paymentGrantCapNanodollars, "paymentGrantCapNanodollars");
+  if (BigInt(paymentGrantCapNanodollars) !== BigInt(engagementWindowNanodollars) + BigInt(settlementReserveNanodollars)) {
+    throw new Error("Alder Services admission quote does not cover the complete first Core hold");
+  }
+  return { paymentGrantCapNanodollars };
+}
+
+async function createOwnerEnrollment({ agentId, installationId, paymentGrantCapNanodollars = null }) {
+  const enrollment = await ownerOrganization().createRuntimeEnrollment({
+    agentId,
+    accessTokenTtlSeconds: 900,
+    alderMcpUrl,
+    expiresInSeconds: 300,
+    ...(paymentGrantCapNanodollars ? {
+      initialServicePayment: {
+        amountUsd: usdNanodollars(BigInt(paymentGrantCapNanodollars)),
+        merchantApplicationId: required("ALDER_SERVICES_MERCHANT_APPLICATION_ID"),
+      },
+    } : {}),
+    requiredServices: [],
+    runtime: "managed-session",
+  });
+  return exchangeOwnerEnrollment(enrollment, installationId);
+}
+
+/**
+ * The owner establishes the first relationship in one encrypted enrollment.
+ * Services first quotes the actual Core hold from its live rate card using a
+ * disposable ordinary enrollment. This launcher never writes an apg_ to disk
+ * or state and never reproduces the settlement-reserve arithmetic locally.
+ */
+export async function ownerServiceEnrollment({ agentId, establish, installationId }) {
+  if (!establish) return createOwnerEnrollment({ agentId, installationId });
+
+  const preflight = await createOwnerEnrollment({
+    agentId,
+    installationId: `${installationId}-admission-quote`,
+  });
+  let quote;
+  try {
+    quote = await quoteManagedSessionAdmission(preflight.controlCredentials.accessToken);
+  } finally {
+    await preflight.acknowledge();
+  }
+
+  const established = await createOwnerEnrollment({
+    agentId,
+    installationId,
+    paymentGrantCapNanodollars: quote.paymentGrantCapNanodollars,
+  });
+  const establishment = established.bundle.initialServicePayment;
+  if (establish && (!establishment?.grant || establishment.merchantApplicationId !== process.env.ALDER_SERVICES_MERCHANT_APPLICATION_ID?.trim())) {
+    throw new Error("owner enrollment did not contain the encrypted managed-session establishment grant");
+  }
+  return {
+    acknowledge: established.acknowledge,
+    controlCredentials: established.controlCredentials,
     establishmentGrant: establishment?.grant ?? null,
   };
 }
