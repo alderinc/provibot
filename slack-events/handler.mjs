@@ -1,13 +1,11 @@
-import { DecryptCommand, EncryptCommand, KMSClient } from "@aws-sdk/client-kms";
 import { DynamoDBClient, GetItemCommand, PutItemCommand } from "@aws-sdk/client-dynamodb";
 import { GetSecretValueCommand, SecretsManagerClient } from "@aws-sdk/client-secrets-manager";
 import { SendMessageCommand, SQSClient } from "@aws-sdk/client-sqs";
-import { createHash, randomBytes } from "node:crypto";
+import { createHash } from "node:crypto";
 
 import { candidateFromSlackEnvelope, eventKey, neutralUserMessage, verifySlackSignature } from "./contract.mjs";
 
 const ddb = new DynamoDBClient({});
-const kms = new KMSClient({});
 const secrets = new SecretsManagerClient({});
 const sqs = new SQSClient({});
 const THREAD_TTL_SECONDS = 7 * 24 * 60 * 60;
@@ -32,10 +30,6 @@ function header(event, name) {
   return Object.entries(event?.headers ?? {}).find(([key]) => key.toLowerCase() === expected)?.[1] ?? "";
 }
 
-function basic(username, password) {
-  return `Basic ${Buffer.from(`${username}:${password}`).toString("base64")}`;
-}
-
 async function configuration() {
   // Lambda warm invocations reuse this parsed configuration in memory. Secrets
   // Manager remains the persistence boundary; its contents are never logged or
@@ -45,7 +39,7 @@ async function configuration() {
   if (!value.SecretString) throw new Error("activation configuration is unavailable");
   const config = JSON.parse(value.SecretString);
   for (const name of [
-    "activationClientId", "activationClientSecret", "activationRedirectUri", "agentId", "alderOrigin",
+    "activationSat", "agentId",
     "generalChannelId", "servicesOrigin", "serviceUserId", "slackSigningSecret", "teamId",
   ]) if (typeof config[name] !== "string" || !config[name]) throw new Error(`activation configuration ${name} is invalid`);
   secretCache = config;
@@ -59,84 +53,6 @@ async function getItem(pk) {
 
 async function putItem(Item) {
   await ddb.send(new PutItemCommand({ Item, TableName: required("STATE_TABLE") }));
-}
-
-function tokenContext(config) {
-  return { agent: config.agentId, purpose: "alder-provibot-slack-activation-refresh-v1" };
-}
-
-async function readTokens(config) {
-  const item = await getItem("activation");
-  if (!item?.ciphertext?.B) return null;
-  const decrypted = await kms.send(new DecryptCommand({
-    CiphertextBlob: item.ciphertext.B,
-    EncryptionContext: tokenContext(config),
-    KeyId: required("TOKEN_KMS_KEY_ARN"),
-  }));
-  if (!decrypted.Plaintext) throw new Error("activation token state cannot be decrypted");
-  return JSON.parse(Buffer.from(decrypted.Plaintext).toString("utf8"));
-}
-
-async function writeTokens(config, tokens) {
-  const encrypted = await kms.send(new EncryptCommand({
-    EncryptionContext: tokenContext(config),
-    KeyId: required("TOKEN_KMS_KEY_ARN"),
-    Plaintext: Buffer.from(JSON.stringify(tokens), "utf8"),
-  }));
-  if (!encrypted.CiphertextBlob) throw new Error("activation token state cannot be encrypted");
-  await putItem({ ciphertext: { B: encrypted.CiphertextBlob }, pk: { S: "activation" }, updatedAt: { S: new Date().toISOString() } });
-}
-
-function pkce() {
-  const verifier = randomBytes(48).toString("base64url");
-  return { challenge: createHash("sha256").update(verifier).digest("base64url"), verifier };
-}
-
-async function exchange(config, body) {
-  const response = await fetch(`${config.alderOrigin}/oauth/token`, {
-    body: new URLSearchParams(body),
-    headers: {
-      authorization: basic(config.activationClientId, config.activationClientSecret),
-      "content-type": "application/x-www-form-urlencoded",
-    },
-    method: "POST",
-  });
-  const payload = await response.json().catch(() => null);
-  if (!response.ok || typeof payload?.access_token !== "string" || typeof payload?.refresh_token !== "string") throw new Error(`activation token exchange failed (${response.status})`);
-  return { accessToken: payload.access_token, expiresAt: new Date(Date.now() + Number(payload.expires_in) * 1000).toISOString(), refreshToken: payload.refresh_token };
-}
-
-async function initialTokens(config) {
-  const { challenge, verifier } = pkce();
-  const authorization = new URL(`${config.alderOrigin}/oauth/authorize`);
-  authorization.searchParams.set("response_type", "code");
-  authorization.searchParams.set("client_id", config.activationClientId);
-  authorization.searchParams.set("redirect_uri", config.activationRedirectUri);
-  authorization.searchParams.set("resource", config.servicesOrigin);
-  authorization.searchParams.set("scope", "managed-sessions:events:write");
-  authorization.searchParams.set("code_challenge", challenge);
-  authorization.searchParams.set("code_challenge_method", "S256");
-  const response = await fetch(authorization, { redirect: "manual" });
-  const location = response.headers.get("location");
-  if (response.status !== 302 || !location) throw new Error(`activation authorization failed (${response.status})`);
-  const code = new URL(location).searchParams.get("code");
-  if (!code) throw new Error("activation authorization did not return a code");
-  return exchange(config, { code, code_verifier: verifier, grant_type: "authorization_code", redirect_uri: config.activationRedirectUri, resource: config.servicesOrigin });
-}
-
-async function activationAccessToken(config) {
-  // The worker is serialized for this agent, which prevents concurrent refresh
-  // rotation. Stored tokens are encrypted and bound to the agent context below.
-  let tokens = await readTokens(config);
-  if (!tokens) {
-    tokens = await initialTokens(config);
-    await writeTokens(config, tokens);
-    return tokens.accessToken;
-  }
-  if (Date.parse(tokens.expiresAt) > Date.now() + 90_000) return tokens.accessToken;
-  tokens = await exchange(config, { grant_type: "refresh_token", refresh_token: tokens.refreshToken, resource: config.servicesOrigin });
-  await writeTokens(config, tokens);
-  return tokens.accessToken;
 }
 
 async function threadIsActive(candidate) {
@@ -154,7 +70,7 @@ async function deliver(candidate, config) {
   const response = await fetch(`${config.servicesOrigin}/agent-instances/activation/events`, {
     body: JSON.stringify(neutralUserMessage(candidate)),
     headers: {
-      authorization: `Bearer ${await activationAccessToken(config)}`,
+      authorization: `Bearer ${config.activationSat}`,
       "content-type": "application/json",
       "idempotency-key": `slack:${candidate.eventId}`,
     },

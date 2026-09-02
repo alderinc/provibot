@@ -18,7 +18,7 @@ decides whether ambient context warrants a reply.
 The worker has no Slack API token. Slack content is neither logged nor written
 to the routing table; DynamoDB retains only event and thread identifiers with a
 seven-day expiry. The rotating activation grant is encrypted with a dedicated
-KMS key. SQS is encrypted and the worker is serialized, so it cannot race a
+SQS FIFO queue. The worker is serialized, so it cannot race a
 rotating refresh family.
 
 ## Deployment
@@ -66,7 +66,7 @@ operational path. Once an IAM Identity Center operator has `sts:AssumeRole` for
 the deployer role, their normal profile needs no override.
 
 The script creates or updates the Lambda ingress and worker, encrypted FIFO
-handoff queue, DynamoDB routing state, KMS key, least-privilege roles, and a
+handoff queue, DynamoDB routing state, least-privilege roles, and a
 dedicated Secrets Manager record (name printed by the deploy script). It writes
 only non-secret resource identifiers to `.local-state/provibot-slack-events.json`
 and prints the Request URL to paste into the existing Slack app's Event

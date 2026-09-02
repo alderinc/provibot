@@ -39,22 +39,6 @@ async function exchangeOwnerEnrollment(enrollment, installationId) {
   };
 }
 
-async function quoteManagedSessionAdmission(establishmentGrant) {
-  const quote = await requestJson(`${alderServicesUrl}/agent-instances/admission-quote`, {
-    headers: { "x-alder-payment-grant": establishmentGrant },
-  }, "managed-session admission quote");
-  if (quote?.route !== "anthropic.managed.sessions" || typeof quote?.rateCardVersion !== "string") {
-    throw new Error("Alder Services admission quote did not identify the managed-session rate card");
-  }
-  const engagementWindowNanodollars = assertPositiveNanodollars(quote.engagementWindowNanodollars, "engagementWindowNanodollars");
-  const settlementReserveNanodollars = assertPositiveNanodollars(quote.settlementReserveNanodollars, "settlementReserveNanodollars");
-  const paymentGrantCapNanodollars = assertPositiveNanodollars(quote.paymentGrantCapNanodollars, "paymentGrantCapNanodollars");
-  if (BigInt(paymentGrantCapNanodollars) !== BigInt(engagementWindowNanodollars) + BigInt(settlementReserveNanodollars)) {
-    throw new Error("Alder Services admission quote does not cover the complete first required hold");
-  }
-  return { paymentGrantCapNanodollars };
-}
-
 function ownerInitialGrantCapNanodollars() {
   return assertPositiveNanodollars(
     required("PROVIBOT_INITIAL_SERVICE_GRANT_CAP_NANODOLLARS"),
@@ -81,10 +65,9 @@ async function createOwnerEnrollment({ agentId, installationId, paymentGrantCapN
 
 /**
  * The owner establishes the first relationship in one encrypted enrollment.
- * A conservative owner-selected cap bounds the one-use grant; Services then
- * reads the exact live quote through that non-consuming grant before the same
- * grant creates the first hold and pma_. The launcher never writes an apg_ to
- * disk or state and never reproduces settlement-reserve arithmetic locally.
+ * A conservative owner-selected cap bounds the one-use grant. Services
+ * derives the live quote and redeems that same grant into the first hold and
+ * pma_ in one operation. The launcher never writes an apg_ to disk or state.
  */
 export async function ownerServiceEnrollment({ agentId, establish, installationId }) {
   if (!establish) return createOwnerEnrollment({ agentId, installationId });
@@ -98,14 +81,26 @@ export async function ownerServiceEnrollment({ agentId, establish, installationI
   if (establish && (!establishment?.grant || establishment.merchantApplicationId !== process.env.ALDER_SERVICES_MERCHANT_APPLICATION_ID?.trim())) {
     throw new Error("owner enrollment did not contain the encrypted managed-session establishment grant");
   }
-  const quote = await quoteManagedSessionAdmission(establishment.grant);
-  if (BigInt(quote.paymentGrantCapNanodollars) > BigInt(ownerInitialGrantCapNanodollars())) {
+  const connected = await requestJson(`${alderServicesUrl}/connections`, {
+    body: JSON.stringify({ mode: "managed_session" }),
+    headers: {
+      "content-type": "application/json",
+      "idempotency-key": `provibot:${agentId}:services-establish:v1`,
+      "x-alder-payment-grant": establishment.grant,
+    },
+    method: "POST",
+  }, "establish Alder Services connection");
+  if (typeof connected?.connection?.pmaRef !== "string" || !connected.connection.pmaRef.startsWith("pma_")) {
+    throw new Error("Alder Services did not establish a durable payment relationship");
+  }
+  const quote = connected?.initialAdmission?.quote;
+  if (typeof quote?.paymentGrantCapNanodollars !== "string" || BigInt(quote.paymentGrantCapNanodollars) > BigInt(ownerInitialGrantCapNanodollars())) {
     throw new Error("Alder Services initial admission exceeds the owner-selected establishment grant cap");
   }
   return {
     acknowledge: established.acknowledge,
     controlCredentials: established.controlCredentials,
-    establishmentGrant: establishment.grant,
+    pmaRef: connected.connection.pmaRef,
   };
 }
 
@@ -132,7 +127,7 @@ export async function findExistingServicesConnection(controlCredentials) {
   return connection?.pmaRef ? { pmaRef: connection.pmaRef } : null;
 }
 
-export async function recoverExistingServicesAccess(controlCredentials, knownConnection = null) {
+export async function recoverExistingServicesAccess(controlCredentials, knownConnection = null, profile = "agent") {
   if (!controlCredentials?.accessToken) {
     throw new Error("Alder control credential is required to recover an existing Services connection");
   }
@@ -150,7 +145,7 @@ export async function recoverExistingServicesAccess(controlCredentials, knownCon
     throw new Error("Alder did not return a valid one-use Services recovery proof");
   }
   const recovered = await requestJson(`${alderServicesUrl}/connections/recover`, {
-    body: JSON.stringify({ pmaRef: connection.pmaRef }),
+    body: JSON.stringify({ pmaRef: connection.pmaRef, profile }),
     headers: {
       "content-type": "application/json",
       "x-alder-connection-recovery-proof": proof.proof,
@@ -160,7 +155,7 @@ export async function recoverExistingServicesAccess(controlCredentials, knownCon
   if (typeof recovered?.sat !== "string" || !recovered.sat.startsWith("sat_")) {
     throw new Error("Alder Services did not return a valid recovered access token");
   }
-  return { pmaRef: connection.pmaRef, sat: recovered.sat };
+  return { expiresAt: recovered.expiresAt, pmaRef: connection.pmaRef, sat: recovered.sat };
 }
 
 export { alderServicesUrl };

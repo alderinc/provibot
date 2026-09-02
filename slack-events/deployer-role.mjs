@@ -22,7 +22,6 @@ export function deployerPolicy({ account, region }) {
   const queueArn = (name) => `arn:aws:sqs:${region}:${account}:${name}`;
   const receiverSecretArn = `arn:aws:secretsmanager:${region}:${account}:secret:alder/pay/provibot/slack-events-receiver-*`;
   const tableArn = `arn:aws:dynamodb:${region}:${account}:table/${prefix}-state`;
-  const keyArn = `arn:aws:kms:${region}:${account}:key/*`;
   const runtimeRoles = [roleArn(`${prefix}-ingress-role`), roleArn(`${prefix}-worker-role`)];
 
   return {
@@ -103,12 +102,6 @@ export function deployerPolicy({ account, region }) {
         Effect: "Allow",
         Action: ["dynamodb:CreateTable", "dynamodb:DescribeTable", "dynamodb:UpdateTimeToLive"],
         Resource: tableArn,
-      },
-      {
-        Sid: "ManageDedicatedStateKey",
-        Effect: "Allow",
-        Action: ["kms:CreateAlias", "kms:CreateKey", "kms:DescribeKey"],
-        Resource: keyArn,
       },
     ],
   };

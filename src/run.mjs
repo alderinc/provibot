@@ -7,7 +7,7 @@ import { alderMcpUrl, alderServicesUrl, alderUrl } from "./endpoints.mjs";
 import { durableMemorySeeds, ensureDurableMemoryStructure } from "./durable-memory.mjs";
 import { persona } from "./persona.mjs";
 import { managed, refreshCredentials, required } from "./shared.mjs";
-import { ownerServiceEnrollment } from "./service-payment-enrollment.mjs";
+import { ownerServiceEnrollment, recoverExistingServicesAccess } from "./service-payment-enrollment.mjs";
 import { configureStandingRuntime } from "./standing-runtime.mjs";
 
 const statePath = new URL("../.local-state/provibot.json", import.meta.url);
@@ -25,6 +25,7 @@ const organization = new OrganizationClient({
 });
 let controlCredentials;
 let controlAgentId;
+let servicesControl;
 
 const slackUserScopes = [
   "chat:write",
@@ -126,8 +127,20 @@ async function recoverControlCredentials(agentId) {
   return enrollment.controlCredentials;
 }
 
+async function ensureServicesControl() {
+  if (servicesControl?.sat) return servicesControl.sat;
+  const recovered = await recoverExistingServicesAccess(
+    { ...controlCredentials, accessToken: await ensureControlFresh() },
+    null,
+    "launcher",
+  );
+  if (!recovered?.sat) throw new Error("ProVIBot has no established Alder Services connection for hosted-resource control");
+  servicesControl = recovered;
+  return recovered.sat;
+}
+
 async function managedControl(method, path, body, idempotencyKey, headers) {
-  return managed(method, path, await ensureControlFresh(), body, idempotencyKey, headers);
+  return managed(method, path, await ensureServicesControl(), body, idempotencyKey, headers);
 }
 
 function tokenFingerprint(token) {
@@ -196,6 +209,12 @@ async function createHostedStack() {
   });
   controlCredentials = { ...enrollment.controlCredentials };
   await writePrivateJson(authPath, controlCredentials);
+  servicesControl = await recoverExistingServicesAccess(
+    { ...controlCredentials, accessToken: await ensureControlFresh() },
+    { pmaRef: enrollment.pmaRef },
+    "launcher",
+  );
+  if (!servicesControl?.sat) throw new Error("ProVIBot owner establishment did not yield recoverable Services access");
   const created = [];
   try {
     const vault = await managedControl("POST", "/vaults", { display_name: "ProVIBot", metadata: { provibotRunId: runId } }, `${runId}:vault`);
@@ -219,7 +238,7 @@ async function createHostedStack() {
     const mcpServers = managedMcpServers({ alderMcpUrl });
     const hostedAgent = await managedControl("POST", "/agents", { name: "ProVIBot", model: "claude-sonnet-5", mcp_servers: mcpServers, tools: fullManagedAgentTools(mcpServers), system: persona(), metadata: { provibotRunId: runId } }, `${runId}:agent`);
     created.push(["agents", hostedAgent.id]);
-    const session = await managedControl("POST", "/sessions", { agent: hostedAgent.id, environment_id: environment.id, vault_ids: [vault.id], resources: [{ type: "memory_store", memory_store_id: memory.id, access: "read_write", instructions: "Read this durable task record before work and update it after meaningful progress or completion." }], metadata: { provibotRunId: runId }, title: "ProVIBot" }, `${runId}:session`, { "x-alder-payment-grant": enrollment.establishmentGrant });
+    const session = await managedControl("POST", "/sessions", { agent: hostedAgent.id, environment_id: environment.id, vault_ids: [vault.id], resources: [{ type: "memory_store", memory_store_id: memory.id, access: "read_write", instructions: "Read this durable task record before work and update it after meaningful progress or completion." }], metadata: { provibotRunId: runId }, title: "ProVIBot" }, `${runId}:session`);
     created.push(["sessions", session.id]);
     await enrollment.acknowledge();
     return {
