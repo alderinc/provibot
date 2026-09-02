@@ -158,4 +158,13 @@ export async function recoverExistingServicesAccess(controlCredentials, knownCon
   return { expiresAt: recovered.expiresAt, pmaRef: connection.pmaRef, sat: recovered.sat };
 }
 
+/**
+ * The Slack receiver is a second, least-privilege instance of the same
+ * Services connection. It receives only an ingress SAT; it never receives an
+ * Alder bearer, MCP credential, grant, or payment authority.
+ */
+export async function recoverIngressServicesAccess(controlCredentials, knownConnection = null) {
+  return recoverExistingServicesAccess(controlCredentials, knownConnection, "ingress");
+}
+
 export { alderServicesUrl };

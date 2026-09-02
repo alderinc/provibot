@@ -20,3 +20,12 @@ test("the Slack receiver imports only its local code, Node, and AWS SDK dependen
     }
   }
 });
+
+test("the Slack receiver holds only its scoped Services ingress token", async () => {
+  for (const sourceName of receiverSources) {
+    const source = await readFile(new URL(`../${sourceName}`, import.meta.url), "utf8");
+    assert.doesNotMatch(source, /activationClientId|activationClientSecret|activationAccessToken/);
+    assert.doesNotMatch(source, /\/oauth\/authorize|\/oauth\/token|managed-sessions:events:write/);
+    assert.doesNotMatch(source, /app\.alder\.exchange|alderMcp|ALDER_ORG_API_KEY/);
+  }
+});

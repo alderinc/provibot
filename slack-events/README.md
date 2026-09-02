@@ -8,18 +8,18 @@ agent's only Slack voice.
 The public Lambda Function URL verifies Slack's HMAC signature and queues a
 candidate event. A single SQS worker deduplicates it, validates the configured
 workspace plus either a direct message or a message in the configured
-`#general` channel, then forwards one normalized activation, carrying a
-neutral, verbatim `user.message`, through the bounded Alder activation
-credential. Services resolves the agent's current
-active session. The event states whether it is a direct message, direct mention,
+`#general` channel, then forwards one normalized ingress event carrying a
+neutral, verbatim `user.message`. Its scoped Services access token can only
+resolve the connection's current active session and deliver that event. The
+event states whether it is a direct message, direct mention,
 active-thread continuation, or ambient channel context; the hosted agent alone
 decides whether ambient context warrants a reply.
 
 The worker has no Slack API token. Slack content is neither logged nor written
 to the routing table; DynamoDB retains only event and thread identifiers with a
-seven-day expiry. The rotating activation grant is encrypted with a dedicated
-SQS FIFO queue. The worker is serialized, so it cannot race a
-rotating refresh family.
+seven-day expiry. The scoped Services ingress token is stored only in the
+receiver's encrypted configuration. The worker is serialized, so it cannot
+race another delivery for this connection.
 
 ## Deployment
 
@@ -65,7 +65,8 @@ That override is deliberately not read from `.env` and is not the standing
 operational path. Once an IAM Identity Center operator has `sts:AssumeRole` for
 the deployer role, their normal profile needs no override.
 
-The script creates or updates the Lambda ingress and worker, encrypted FIFO
+The owner-side deployment step recovers a narrowly scoped Services ingress
+token for the existing connection, then creates or updates the Lambda ingress and worker, encrypted FIFO
 handoff queue, DynamoDB routing state, least-privilege roles, and a
 dedicated Secrets Manager record (name printed by the deploy script). It writes
 only non-secret resource identifiers to `.local-state/provibot-slack-events.json`
@@ -92,10 +93,10 @@ model.
 
 This receiver is the sole ingress. The agent remains reactive: no scheduler,
 polling loop, proactive spending, or autonomous wake source exists. A session
-renewal does not require Slack reauthorization because the activation credential
-is bound to the Alder agent, while Services resolves its active session at
-delivery time.
+renewal does not require Slack reauthorization or a new payment relationship:
+the ingress token remains bound to the existing Services connection while the
+receiver resolves its active session at delivery time.
 
-Services acknowledges an activation only after durably recording it; this
+Services acknowledges an ingress event only after durably recording it; this
 receiver retries only when that handoff itself cannot be made. System-health
 monitoring belongs in standard infrastructure tooling, not in this receiver.

@@ -64,7 +64,7 @@ if (!existingConnection) {
 servicesControl = await recoverExistingServicesAccess(
   { ...credentials, accessToken: await controlToken() },
   existingConnection,
-  "launcher",
+  "agent",
 );
 if (!servicesControl?.sat) throw new Error("ProVIBot has no established Alder Services connection for renewal");
 
@@ -90,7 +90,7 @@ if (renewal.state !== "closed") throw new Error(`ProVIBot session renewal checkp
 // Create the replacement only after final capture/release for the prior
 // session completes. The Alder agent, wallet, Vault, environment, and memory
 // store stay constant across this deliberately explicit session boundary.
-// A replacement session uses the recovered launcher sat_ against the same
+// A replacement session uses a recovered Services sat_ against the same
 // pma_. The Alder identity is lifecycle-only; it cannot select a payment
 // method for a managed-session hold.
 const sessionAccessToken = servicesControl.sat;

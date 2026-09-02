@@ -36,12 +36,12 @@ async function configuration() {
   // written to DynamoDB.
   if (secretCache) return secretCache;
   const value = await secrets.send(new GetSecretValueCommand({ SecretId: required("CONFIG_SECRET_ARN") }));
-  if (!value.SecretString) throw new Error("activation configuration is unavailable");
+  if (!value.SecretString) throw new Error("ingress configuration is unavailable");
   const config = JSON.parse(value.SecretString);
   for (const name of [
-    "activationSat", "agentId",
+    "ingressSat", "agentId",
     "generalChannelId", "servicesOrigin", "serviceUserId", "slackSigningSecret", "teamId",
-  ]) if (typeof config[name] !== "string" || !config[name]) throw new Error(`activation configuration ${name} is invalid`);
+  ]) if (typeof config[name] !== "string" || !config[name]) throw new Error(`ingress configuration ${name} is invalid`);
   secretCache = config;
   return config;
 }
@@ -67,10 +67,31 @@ async function deliver(candidate, config) {
   // worker records completion.
   if (await getItem(eventKey(candidate.eventId))) return;
   if (!(await threadIsActive(candidate))) return;
-  const response = await fetch(`${config.servicesOrigin}/agent-instances/activation/events`, {
+  const sessionResponse = await fetch(`${config.servicesOrigin}/agent-instances/active-session`, {
+    headers: { authorization: `Bearer ${config.ingressSat}` },
+    method: "GET",
+  });
+  if (sessionResponse.status >= 500) {
+    throw new Error(`ingress session lookup unavailable (${sessionResponse.status})`);
+  }
+  const session = await sessionResponse.json().catch(() => null);
+  if (!sessionResponse.ok || typeof session?.sessionId !== "string" || !session.sessionId) {
+    console.error("provibot_slack_ingress_session_unavailable", {
+      eventId: candidate.eventId,
+      reason: sessionResponse.ok ? "no_active_session" : "services_access_rejected",
+      status: sessionResponse.status,
+    });
+    // This is an explicit drop, not an unacknowledged transport retry. Record
+    // it so a duplicate Slack delivery cannot become a later wake after the
+    // receiver has already reported that no session/access was available.
+    const expiresAt = Math.floor(Date.now() / 1000) + THREAD_TTL_SECONDS;
+    await putItem({ expiresAt: { N: String(expiresAt) }, pk: { S: eventKey(candidate.eventId) } });
+    return;
+  }
+  const response = await fetch(`${config.servicesOrigin}/agent-instances/sessions/${encodeURIComponent(session.sessionId)}/events`, {
     body: JSON.stringify(neutralUserMessage(candidate)),
     headers: {
-      authorization: `Bearer ${config.activationSat}`,
+      authorization: `Bearer ${config.ingressSat}`,
       "content-type": "application/json",
       "idempotency-key": `slack:${candidate.eventId}`,
     },
@@ -83,10 +104,10 @@ async function deliver(candidate, config) {
   // transport exceptions and an unavailable (5xx) Services edge. It never
   // retries supplier delivery, session rearm, or a customer-funding state.
   if (response.status >= 500) {
-    throw new Error(`activation handoff unavailable (${response.status})`);
+    throw new Error(`ingress delivery unavailable (${response.status})`);
   }
   if (response.status !== 202) {
-    console.error("provibot_slack_activation_handoff_rejected", {
+    console.error("provibot_slack_ingress_delivery_rejected", {
       eventId: candidate.eventId,
       status: response.status,
     });
@@ -132,7 +153,7 @@ export async function worker(event) {
     } catch (error) {
       let eventId = "unknown";
       try { eventId = JSON.parse(record.body).eventId; } catch { /* preserve opaque logs */ }
-      console.error("provibot_slack_activation_delivery_failed", {
+      console.error("provibot_slack_ingress_delivery_failed", {
         eventId,
         failureClass: "handoff_transport",
       });

@@ -132,7 +132,7 @@ async function ensureServicesControl() {
   const recovered = await recoverExistingServicesAccess(
     { ...controlCredentials, accessToken: await ensureControlFresh() },
     null,
-    "launcher",
+    "agent",
   );
   if (!recovered?.sat) throw new Error("ProVIBot has no established Alder Services connection for hosted-resource control");
   servicesControl = recovered;
@@ -212,7 +212,7 @@ async function createHostedStack() {
   servicesControl = await recoverExistingServicesAccess(
     { ...controlCredentials, accessToken: await ensureControlFresh() },
     { pmaRef: enrollment.pmaRef },
-    "launcher",
+    "agent",
   );
   if (!servicesControl?.sat) throw new Error("ProVIBot owner establishment did not yield recoverable Services access");
   const created = [];

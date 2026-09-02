@@ -9,7 +9,6 @@ import { deployerRoleArn, deployerRoleName, prefix } from "./deployer-role.mjs";
 
 // The receiver has the same fixed public endpoints as the application, but it
 // is intentionally packaged without importing application code.
-const alderUrl = "https://app.alder.exchange";
 const alderServicesUrl = "https://services.alder.exchange";
 const execFile = promisify(execFileCallback);
 const region = process.env.AWS_REGION?.trim() || "eu-central-1";
@@ -30,7 +29,6 @@ for (const name of inheritedAwsCredentialNames) {
 }
 let deploymentEnvironment = null;
 const hostedPath = new URL("../.local-state/provibot.json", import.meta.url);
-const authPath = new URL("../.local-state/provibot-auth.json", import.meta.url);
 const statePath = new URL("../.local-state/provibot-slack-events.json", import.meta.url);
 
 function required(name) {
@@ -43,54 +41,12 @@ async function json(path) {
   return JSON.parse(await readFile(path, "utf8"));
 }
 
-async function localAlderBearer() {
-  const credentials = await json(authPath);
-  if (typeof credentials?.accessToken !== "string") throw new Error("the local ProVIBot Alder credential is unavailable; run npm start before deploying Slack activation");
-  if (Date.parse(credentials.accessTokenExpiresAt) > Date.now() + 90_000) return credentials.accessToken;
-  if (!credentials.clientId || !credentials.clientSecret || !credentials.refreshToken) {
-    throw new Error("the local ProVIBot Alder credential cannot be refreshed; run npm start before deploying Slack activation");
-  }
-  const response = await fetch(`${alderUrl}/oauth/token`, {
-    body: new URLSearchParams({ grant_type: "refresh_token", refresh_token: credentials.refreshToken }),
-    headers: {
-      authorization: `Basic ${Buffer.from(`${credentials.clientId}:${credentials.clientSecret}`).toString("base64")}`,
-      "content-type": "application/x-www-form-urlencoded",
-    },
-    method: "POST",
-  });
-  const refreshed = await response.json().catch(() => null);
-  if (!response.ok || typeof refreshed?.access_token !== "string") throw new Error("the local ProVIBot Alder credential refresh failed; run npm start before deploying Slack activation");
-  const next = {
-    ...credentials,
-    accessToken: refreshed.access_token,
-    accessTokenExpiresAt: new Date(Date.now() + Number(refreshed.expires_in) * 1000).toISOString(),
-    refreshToken: typeof refreshed.refresh_token === "string" ? refreshed.refresh_token : credentials.refreshToken,
-  };
-  await writePrivate(authPath, next);
-  return next.accessToken;
-}
-
-async function recoverActivationSat() {
-  const bearer = await localAlderBearer();
-  const merchantApplicationId = required("ALDER_SERVICES_MERCHANT_APPLICATION_ID");
-  const connections = await fetch(`${alderUrl}/agent/merchant-connections`, { headers: { authorization: `Bearer ${bearer}` } });
-  const listed = await connections.json().catch(() => null);
-  const connection = Array.isArray(listed?.items)
-    ? listed.items.find((item) => item?.merchantApplicationId === merchantApplicationId && item?.status === "active")
-    : null;
-  if (typeof connection?.pmaRef !== "string") throw new Error("the ProVIBot Services connection is not established; run npm start before deploying Slack activation");
-  const proofResponse = await fetch(`${alderUrl}/agent/merchant-connections/${encodeURIComponent(connection.pmaRef)}/recovery-proofs`, {
-    headers: { authorization: `Bearer ${bearer}`, "content-type": "application/json" }, method: "POST",
-  });
-  const proof = await proofResponse.json().catch(() => null);
-  if (!proofResponse.ok || typeof proof?.proof !== "string" || !proof.proof.startsWith("prp_")) throw new Error("Alder did not issue a one-use Services recovery proof");
-  const recoveredResponse = await fetch(`${alderServicesUrl}/connections/recover`, {
-    body: JSON.stringify({ pmaRef: connection.pmaRef, profile: "activation" }),
-    headers: { "content-type": "application/json", "x-alder-connection-recovery-proof": proof.proof }, method: "POST",
-  });
-  const recovered = await recoveredResponse.json().catch(() => null);
-  if (!recoveredResponse.ok || typeof recovered?.sat !== "string" || !recovered.sat.startsWith("sat_")) throw new Error("Alder Services did not issue the Slack activation access token");
-  return recovered.sat;
+async function ingressSat() {
+  const tokenPath = process.env.PROVIBOT_INGRESS_SAT_FILE?.trim();
+  if (!tokenPath) throw new Error("PROVIBOT_INGRESS_SAT_FILE is required; use npm run deploy:slack-events");
+  const token = (await readFile(tokenPath, "utf8")).trim();
+  if (!token.startsWith("sat_")) throw new Error("the owner ingress recovery did not supply a valid Services access token");
+  return token;
 }
 
 async function aws(args) {
@@ -243,12 +199,12 @@ if (sourceIsRoot) {
 
 const [hosted, caller] = await Promise.all([json(hostedPath), awsJson(["sts", "get-caller-identity"])]);
 if (!hosted?.alderAgentId) throw new Error("the existing ProVIBot agent identity is unavailable");
-const activationSat = await recoverActivationSat();
+const ingressSatValue = await ingressSat();
 const config = {
-  activationSat,
+  ingressSat: ingressSatValue,
   agentId: hosted.alderAgentId,
   generalChannelId: required("PROVIBOT_SLACK_CHANNEL_ID"),
-  schema: "alder.provibot.slack-events/v1",
+  schema: "alder.provibot.slack-events/v2",
   servicesOrigin: alderServicesUrl,
   serviceUserId: required("PROVIBOT_SLACK_USER_ID"),
   slackSigningSecret: required("PROVIBOT_SLACK_SIGNING_SECRET"),
