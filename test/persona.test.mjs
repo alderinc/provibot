@@ -28,7 +28,8 @@ test("standing persona uses engagement-only windows and deliberate response plac
   assert.match(prompt, /19408080000 at scale 9 is \$19\.40808, not \$19\.408B/);
   assert.match(prompt, /multi-step paid work.*send a one-line Slack acknowledgement before the first paid call/);
   assert.match(prompt, /record the estimate, reference-class basis, actionable remaining, resize threshold, and decision in \/provi\/active-work\.md/);
-  assert.match(prompt, /use its receipt endpoint for the actual captured amount/);
+  assert.match(prompt, /read GET \/receipts\/\{receiptRef\} with your access token/);
+  assert.match(prompt, /a receipt reference in a response header is not the receipt itself/);
   assert.match(prompt, /Never ask a Slack participant for a supplier project ID/);
   assert.match(prompt, /never report it as "\$0 charged", create a second charge, or substitute a new idempotency key/);
   assert.match(prompt, /report reconciliation_pending with its exact cause, payment reference or hold reference, and financial state/);
