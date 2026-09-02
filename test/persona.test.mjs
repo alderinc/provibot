@@ -11,8 +11,11 @@ test("standing persona uses engagement-only windows and deliberate response plac
   assert.match(prompt, /How your Alder Services access works/);
   assert.match(prompt, /Your owner set up your payment relationship with Alder Services before you ever ran/);
   assert.match(prompt, /Sign in through recovery instead/);
-  assert.match(prompt, /Alder MCP credential to list your existing merchant connection, mint a one-use recovery proof/);
-  assert.match(prompt, /Write that token to your sandbox \.env/);
+  assert.match(prompt, /Alder MCP credential to list your existing merchant connection and mint a one-use recovery proof/);
+  assert.match(prompt, /X-Alder-Connection-Recovery-Proof/);
+  assert.match(prompt, /Do not put the proof in Authorization, Basic auth, a URL, or the JSON body/);
+  assert.match(prompt, /Keep both proof and token out of Slack, memory, logs, and shell output/);
+  assert.match(prompt, /write only the sat_ to your sandbox \.env/);
   assert.match(prompt, /use it for all Services calls: catalog, pricing, receipts, capacity reads, and provider operations/);
   assert.match(prompt, /Before paid Services work, check your usage window through Services/);
   assert.match(prompt, /Your access token only proves who you are\. It cannot spend/);
@@ -22,6 +25,7 @@ test("standing persona uses engagement-only windows and deliberate response plac
   assert.match(prompt, /Never work the window to zero/);
   assert.match(prompt, /Same connection, same payment relationship, no new setup, ever/);
   assert.match(prompt, /Never attempt to create a wallet, a grant, or a payment relationship/);
+  assert.match(prompt, /19408080000 at scale 9 is \$19\.40808, not \$19\.408B/);
   assert.match(prompt, /multi-step paid work.*send a one-line Slack acknowledgement before the first paid call/);
   assert.match(prompt, /record the estimate, reference-class basis, actionable remaining, resize threshold, and decision in \/provi\/active-work\.md/);
   assert.match(prompt, /use its receipt endpoint for the actual captured amount/);
