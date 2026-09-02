@@ -5,7 +5,7 @@ import { persona } from "../src/persona.mjs";
 
 test("standing persona uses engagement-only windows and deliberate response placement", () => {
   const prompt = persona();
-  const firstCapacityCheck = prompt.indexOf("At the start of every work turn, first obtain the named managed-session capacity through Services");
+  const firstCapacityCheck = prompt.indexOf("Before meaningful Services work, and again before returning idle after substantial work, read your usage window through Services");
   const acknowledgement = prompt.indexOf("send a one-line Slack acknowledgement before the first paid call");
   assert.ok(firstCapacityCheck >= 0 && acknowledgement >= 0);
   assert.match(prompt, /How your Alder Services access works/);
@@ -17,17 +17,19 @@ test("standing persona uses engagement-only windows and deliberate response plac
   assert.match(prompt, /Keep both proof and token out of Slack, memory, logs, and shell output/);
   assert.match(prompt, /write only the sat_ to your sandbox \.env/);
   assert.match(prompt, /use it for all Services calls: catalog, pricing, receipts, capacity reads, and provider operations/);
-  assert.match(prompt, /Before paid Services work, check your usage window through Services/);
+  assert.match(prompt, /Before meaningful Services work, and again before returning idle after substantial work, read your usage window through Services/);
   assert.match(prompt, /Your access token only proves who you are\. It cannot spend/);
   assert.match(prompt, /Window allowance, windowConsumed, reservedForActiveWork, availableForNewAdmission, and activeSegment\.actionableRemaining are distinct facts/);
   assert.match(prompt, /only actionableRemaining is spendable capacity/);
-  assert.match(prompt, /minimumNextWindowAllowance through Services with a fresh idempotency key/);
-  assert.match(prompt, /Never work the window to zero/);
+  assert.match(prompt, /Services reports these facts and does not choose your runway/);
+  assert.match(prompt, /If that plan does not fit within actionableRemaining, choose and request a concrete absolute allowance that does fit/);
+  assert.match(prompt, /The requested amount is your judgment from the work, not a Services recommendation/);
+  assert.match(prompt, /For an acknowledgement-only event that still has capacity, acknowledge it without resizing or narrating capacity/);
   assert.match(prompt, /Same connection, same payment relationship, no new setup, ever/);
   assert.match(prompt, /Never attempt to create a wallet, a grant, or a payment relationship/);
   assert.match(prompt, /19408080000 at scale 9 is \$19\.40808, not \$19\.408B/);
   assert.match(prompt, /multi-step paid work.*send a one-line Slack acknowledgement before the first paid call/);
-  assert.match(prompt, /record the estimate, reference-class basis, actionable remaining, resize threshold, and decision in \/provi\/active-work\.md/);
+  assert.match(prompt, /record the estimate, reference-class basis, actionable remaining, requested allowance, and decision in \/provi\/active-work\.md/);
   assert.match(prompt, /read GET \/receipts\/\{receiptRef\} with your access token/);
   assert.match(prompt, /a receipt reference in a response header is not the receipt itself/);
   assert.match(prompt, /Never ask a Slack participant for a supplier project ID/);
@@ -35,6 +37,7 @@ test("standing persona uses engagement-only windows and deliberate response plac
   assert.match(prompt, /report reconciliation_pending with its exact cause, payment reference or hold reference, and financial state/);
   assert.match(prompt, /never report it as "\$0 charged"/);
   assert.doesNotMatch(prompt, /cumulative Services window/);
+  assert.doesNotMatch(prompt, /controlReserve|resizeThreshold|minimumNextWindowAllowance|control_reserve/);
   assert.doesNotMatch(prompt, /getManagedSessionCapacity|setUsageWindow|alder-session-capacity/);
   assert.doesNotMatch(prompt, /Alder Core/);
   assert.match(prompt, /reply top-level by omitting thread_ts/);
