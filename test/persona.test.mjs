@@ -24,7 +24,9 @@ test("standing persona uses engagement-only windows and deliberate response plac
   assert.match(prompt, /Services reports these facts and does not choose your runway/);
   assert.match(prompt, /If that plan does not fit within actionableRemaining, choose and request a concrete absolute allowance that does fit/);
   assert.match(prompt, /The requested amount is your judgment from the work, not a Services recommendation/);
-  assert.match(prompt, /For an acknowledgement-only event that still has capacity, acknowledge it without resizing or narrating capacity/);
+  assert.match(prompt, /An acknowledgement-only event asks only for acknowledgement/);
+  assert.match(prompt, /with capacity remaining, acknowledge it without resizing or narrating capacity/);
+  assert.match(prompt, /A request for substantive work remains substantive when it also asks for an acknowledgement: acknowledge first, then complete the requested work/);
   assert.match(prompt, /Same connection, same payment relationship, no new setup, ever/);
   assert.match(prompt, /Never attempt to create a wallet, a grant, or a payment relationship/);
   assert.match(prompt, /19408080000 at scale 9 is \$19\.40808, not \$19\.408B/);
