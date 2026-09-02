@@ -27,10 +27,11 @@ test("owner establishment stays in the encrypted enrollment handoff", async () =
   assert.match(enrollment, /initialServicePayment/);
   assert.match(enrollment, /mode: "managed_session"/);
   assert.match(enrollment, /\/connections/);
+  assert.match(enrollment, /\/connections\/managed-session-quote/);
   assert.match(enrollment, /paymentGrantCapNanodollars/);
-  assert.match(enrollment, /PROVIBOT_INITIAL_SERVICE_GRANT_CAP_NANODOLLARS/);
+  assert.doesNotMatch(enrollment, /PROVIBOT_INITIAL_SERVICE_GRANT_CAP_NANODOLLARS/);
   assert.match(enrollment, /x-alder-payment-grant/);
-  assert.match(enrollment, /initial admission exceeds the owner-selected establishment grant cap/);
+  assert.match(enrollment, /initial admission exceeded the pre-establishment quote/);
   assert.doesNotMatch(enrollment, /requiredServices/);
   assert.match(run, /recoverExistingServicesAccess/);
   assert.doesNotMatch(run, /"launcher"/);
@@ -49,7 +50,7 @@ test("owner establishment stays in the encrypted enrollment handoff", async () =
   assert.match(renew, /owner launch establishment flow before renewal/);
   assert.doesNotMatch(renew, /establish:\s*true/);
   assert.doesNotMatch(renew, /currentServiceConnection/);
-  assert.doesNotMatch(enrollment, /admission-quote/);
+  assert.doesNotMatch(enrollment, /owner-selected cap/);
   assert.doesNotMatch(renew, /x-alder-payment-grant/);
   assert.doesNotMatch(run, /previewAuthHeader|ALDER_BASIC_AUTH|ALDER_SERVICES_LEGACY/);
   assert.doesNotMatch(run, /\$\{servicesUrl\}\/mcp/);

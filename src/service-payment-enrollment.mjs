@@ -39,11 +39,17 @@ async function exchangeOwnerEnrollment(enrollment, installationId) {
   };
 }
 
-function ownerInitialGrantCapNanodollars() {
-  return assertPositiveNanodollars(
-    required("PROVIBOT_INITIAL_SERVICE_GRANT_CAP_NANODOLLARS"),
-    "PROVIBOT_INITIAL_SERVICE_GRANT_CAP_NANODOLLARS",
-  );
+async function quoteInitialManagedSessionAdmission() {
+  const quoted = await requestJson(`${alderServicesUrl}/connections/managed-session-quote`, {
+    headers: { accept: "application/json" },
+    method: "GET",
+  }, "quote initial Alder Services managed-session admission");
+  const quote = quoted?.quote;
+  return {
+    engagementWindowNanodollars: assertPositiveNanodollars(quote?.engagementWindowNanodollars, "engagementWindowNanodollars"),
+    paymentGrantCapNanodollars: assertPositiveNanodollars(quote?.paymentGrantCapNanodollars, "paymentGrantCapNanodollars"),
+    settlementReserveNanodollars: assertPositiveNanodollars(quote?.settlementReserveNanodollars, "settlementReserveNanodollars"),
+  };
 }
 
 async function createOwnerEnrollment({ agentId, installationId, paymentGrantCapNanodollars = null }) {
@@ -65,17 +71,19 @@ async function createOwnerEnrollment({ agentId, installationId, paymentGrantCapN
 
 /**
  * The owner establishes the first relationship in one encrypted enrollment.
- * A conservative owner-selected cap bounds the one-use grant. Services
- * derives the live quote and redeems that same grant into the first hold and
- * pma_ in one operation. The launcher never writes an apg_ to disk or state.
+ * The owner obtains Services' exact non-financial quote before minting the
+ * one-use grant. Services redeems that same grant into the first hold and pma_
+ * in one operation. The launcher never writes an apg_ to disk or state.
  */
 export async function ownerServiceEnrollment({ agentId, establish, installationId }) {
   if (!establish) return createOwnerEnrollment({ agentId, installationId });
 
+  const initialQuote = await quoteInitialManagedSessionAdmission();
+
   const established = await createOwnerEnrollment({
     agentId,
     installationId,
-    paymentGrantCapNanodollars: ownerInitialGrantCapNanodollars(),
+    paymentGrantCapNanodollars: initialQuote.paymentGrantCapNanodollars,
   });
   const establishment = established.bundle.initialServicePayment;
   if (establish && (!establishment?.grant || establishment.merchantApplicationId !== process.env.ALDER_SERVICES_MERCHANT_APPLICATION_ID?.trim())) {
@@ -94,12 +102,13 @@ export async function ownerServiceEnrollment({ agentId, establish, installationI
     throw new Error("Alder Services did not establish a durable payment relationship");
   }
   const quote = connected?.initialAdmission?.quote;
-  if (typeof quote?.paymentGrantCapNanodollars !== "string" || BigInt(quote.paymentGrantCapNanodollars) > BigInt(ownerInitialGrantCapNanodollars())) {
-    throw new Error("Alder Services initial admission exceeds the owner-selected establishment grant cap");
+  if (typeof quote?.paymentGrantCapNanodollars !== "string" || BigInt(quote.paymentGrantCapNanodollars) > BigInt(initialQuote.paymentGrantCapNanodollars)) {
+    throw new Error("Alder Services initial admission exceeded the pre-establishment quote");
   }
   return {
     acknowledge: established.acknowledge,
     controlCredentials: established.controlCredentials,
+    initialAdmissionQuote: quote,
     pmaRef: connected.connection.pmaRef,
   };
 }
