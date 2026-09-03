@@ -136,7 +136,7 @@ export async function findExistingServicesConnection(controlCredentials) {
   return connection?.pmaRef ? { pmaRef: connection.pmaRef } : null;
 }
 
-export async function recoverExistingServicesAccess(controlCredentials, knownConnection = null, profile = "agent") {
+export async function recoverExistingServicesAccess(controlCredentials, knownConnection = null, profile = "standard") {
   if (!controlCredentials?.accessToken) {
     throw new Error("Alder control credential is required to recover an existing Services connection");
   }

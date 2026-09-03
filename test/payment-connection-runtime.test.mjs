@@ -41,7 +41,7 @@ test("owner establishment stays in the encrypted enrollment handoff", async () =
   assert.match(vaultCredential, /refusing to create a second credential/);
   assert.match(vaultCredential, /mcp_oauth_validate/);
   assert.doesNotMatch(run, /"launcher"/);
-  assert.match(run, /"agent"/);
+  assert.match(run, /"standard"/);
   assert.doesNotMatch(run, /x-alder-payment-grant/);
   assert.match(run, /serviceConnectionEstablishedAt/);
   assert.match(enrollment, /bundle\.credentials\?\.alderMcp/);
@@ -66,4 +66,17 @@ test("owner establishment stays in the encrypted enrollment handoff", async () =
   assert.match(ingressDeploy, /pmaConnectionReused: true/);
   assert.match(receiverDeploy, /PROVIBOT_INGRESS_SAT_FILE/);
   assert.doesNotMatch(receiverDeploy, /app\.alder\.exchange|\/oauth\/token|ALDER_ORG_API_KEY|recovery-proofs/);
+});
+
+test("normal Services recovery keeps the independent ingress profile available", async () => {
+  const [enrollment, run, ingressDeploy] = await Promise.all([
+    readFile("src/service-payment-enrollment.mjs", "utf8"),
+    readFile("src/run.mjs", "utf8"),
+    readFile("src/deploy-slack-ingress.mjs", "utf8"),
+  ]);
+  assert.match(enrollment, /profile = "standard"/);
+  assert.match(run, /recoverExistingServicesAccess\(controlCredentials, null, "standard"\)/);
+  assert.match(enrollment, /recoverExistingServicesAccess\(controlCredentials, knownConnection, "ingress"\)/);
+  assert.match(ingressDeploy, /recoverIngressServicesAccess/);
+  assert.doesNotMatch(ingressDeploy, /recoverExistingServicesAccess\([^\n]*"standard"/);
 });

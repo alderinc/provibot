@@ -64,7 +64,7 @@ if (!existingConnection) {
   throw new Error("ProVIBot has no established Alder Services connection; run the owner launch establishment flow before renewal");
 }
 await controlToken();
-servicesControl = await recoverExistingServicesAccess(credentials, existingConnection, "agent");
+servicesControl = await recoverExistingServicesAccess(credentials, existingConnection, "standard");
 if (!servicesControl?.sat) throw new Error("ProVIBot has no established Alder Services connection for renewal");
 
 // Upgrade the one pre-existing Vault credential before closing the current
