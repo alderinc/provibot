@@ -9,7 +9,6 @@ import { deployerRoleArn, deployerRoleName, prefix } from "./deployer-role.mjs";
 
 // The receiver has the same fixed public endpoints as the application, but it
 // is intentionally packaged without importing application code.
-const alderUrl = "https://app.alder.exchange";
 const alderServicesUrl = "https://services.alder.exchange";
 const execFile = promisify(execFileCallback);
 const region = process.env.AWS_REGION?.trim() || "eu-central-1";
@@ -29,8 +28,6 @@ for (const name of inheritedAwsCredentialNames) {
   if (process.env[name]?.trim()) throw new Error(`${name} must not be supplied through .env; authenticate the local AWS CLI with a named profile instead`);
 }
 let deploymentEnvironment = null;
-const activationPath = new URL("../.local-state/provibot-activation-client.json", import.meta.url);
-const bootstrapPath = new URL("../.local-state/provibot-activation-bootstrap.json", import.meta.url);
 const hostedPath = new URL("../.local-state/provibot.json", import.meta.url);
 const statePath = new URL("../.local-state/provibot-slack-events.json", import.meta.url);
 
@@ -42,6 +39,14 @@ function required(name) {
 
 async function json(path) {
   return JSON.parse(await readFile(path, "utf8"));
+}
+
+async function ingressSat() {
+  const tokenPath = process.env.PROVIBOT_INGRESS_SAT_FILE?.trim();
+  if (!tokenPath) throw new Error("PROVIBOT_INGRESS_SAT_FILE is required; use npm run deploy:slack-events");
+  const token = (await readFile(tokenPath, "utf8")).trim();
+  if (!token.startsWith("sat_")) throw new Error("the owner ingress recovery did not supply a valid Services access token");
+  return token;
 }
 
 async function aws(args) {
@@ -67,15 +72,6 @@ async function temporaryJson(directory, value) {
   const path = join(directory, `${randomUUID()}.json`);
   await writeFile(path, JSON.stringify(value), { mode: 0o600 });
   return path;
-}
-
-function basic(username, password) {
-  return `Basic ${Buffer.from(`${username}:${password}`).toString("base64")}`;
-}
-
-function pkce() {
-  const verifier = randomUUID().replaceAll("-", "") + randomUUID().replaceAll("-", "");
-  return { challenge: createHash("sha256").update(verifier).digest("base64url"), verifier };
 }
 
 async function ensureRole(name, trustPath) {
@@ -201,18 +197,14 @@ if (sourceIsRoot) {
   deploymentEnvironment = assumedRoleEnvironment(assumed.Credentials);
 }
 
-const [activation, bootstrap, hosted, caller] = await Promise.all([json(activationPath), json(bootstrapPath), json(hostedPath), awsJson(["sts", "get-caller-identity"])]);
-if (!activation?.clientId || !bootstrap?.clientSecret || activation.clientId !== bootstrap.clientId || !hosted?.alderAgentId) {
-  throw new Error("the existing ProVIBot activation client bootstrap is unavailable");
-}
+const [hosted, caller] = await Promise.all([json(hostedPath), awsJson(["sts", "get-caller-identity"])]);
+if (!hosted?.alderAgentId) throw new Error("the existing ProVIBot agent identity is unavailable");
+const ingressSatValue = await ingressSat();
 const config = {
-  activationClientId: activation.clientId,
-  activationClientSecret: bootstrap.clientSecret,
-  activationRedirectUri: activation.redirectUri,
+  ingressSat: ingressSatValue,
   agentId: hosted.alderAgentId,
-  alderOrigin: alderUrl,
   generalChannelId: required("PROVIBOT_SLACK_CHANNEL_ID"),
-  schema: "alder.provibot.slack-events/v1",
+  schema: "alder.provibot.slack-events/v2",
   servicesOrigin: alderServicesUrl,
   serviceUserId: required("PROVIBOT_SLACK_USER_ID"),
   slackSigningSecret: required("PROVIBOT_SLACK_SIGNING_SECRET"),
@@ -247,20 +239,11 @@ try {
     await aws(["dynamodb", "wait", "table-exists", "--table-name", names.state]);
     await aws(["dynamodb", "update-time-to-live", "--table-name", names.state, "--time-to-live-specification", "Enabled=true,AttributeName=expiresAt"]);
   }
-  const kmsAlias = `alias/${names.state}`;
-  let kmsKeyArn;
-  if (await exists(["kms", "describe-key", "--key-id", kmsAlias])) {
-    kmsKeyArn = await aws(["kms", "describe-key", "--key-id", kmsAlias, "--query", "KeyMetadata.Arn", "--output", "text"]);
-  } else {
-    const keyId = await aws(["kms", "create-key", "--description", "ProVIBot Slack activation refresh state", "--query", "KeyMetadata.KeyId", "--output", "text"]);
-    await aws(["kms", "create-alias", "--alias-name", kmsAlias, "--target-key-id", keyId]);
-    kmsKeyArn = await aws(["kms", "describe-key", "--key-id", kmsAlias, "--query", "KeyMetadata.Arn", "--output", "text"]);
-  }
   const ingressRoleArn = await ensureRole(names.ingressRole, trustPath);
   const workerRoleArn = await ensureRole(names.workerRole, trustPath);
   for (const [role, managed] of [[names.ingressRole, "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"], [names.workerRole, "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"], [names.workerRole, "arn:aws:iam::aws:policy/service-role/AWSLambdaSQSQueueExecutionRole"]]) await aws(["iam", "attach-role-policy", "--role-name", role, "--policy-arn", managed]);
   const ingressPolicy = await temporaryJson(directory, { Version: "2012-10-17", Statement: [{ Effect: "Allow", Action: ["secretsmanager:GetSecretValue"], Resource: secretArn }, { Effect: "Allow", Action: ["sqs:SendMessage"], Resource: queueArn }] });
-  const workerPolicy = await temporaryJson(directory, { Version: "2012-10-17", Statement: [{ Effect: "Allow", Action: ["secretsmanager:GetSecretValue"], Resource: secretArn }, { Effect: "Allow", Action: ["dynamodb:GetItem", "dynamodb:PutItem"], Resource: `arn:aws:dynamodb:${region}:${caller.Account}:table/${names.state}` }, { Effect: "Allow", Action: ["kms:Decrypt", "kms:Encrypt"], Resource: kmsKeyArn }] });
+  const workerPolicy = await temporaryJson(directory, { Version: "2012-10-17", Statement: [{ Effect: "Allow", Action: ["secretsmanager:GetSecretValue"], Resource: secretArn }, { Effect: "Allow", Action: ["dynamodb:GetItem", "dynamodb:PutItem"], Resource: `arn:aws:dynamodb:${region}:${caller.Account}:table/${names.state}` }] });
   await aws(["iam", "put-role-policy", "--role-name", names.ingressRole, "--policy-name", `${prefix}-ingress`, "--policy-document", `file://${ingressPolicy}`]);
   await aws(["iam", "put-role-policy", "--role-name", names.workerRole, "--policy-name", `${prefix}-worker`, "--policy-document", `file://${workerPolicy}`]);
   const zipPath = join(directory, "receiver.zip");
@@ -268,7 +251,7 @@ try {
   // local ESM dependency in the shared ZIP so either Lambda can initialize.
   await execFile("zip", ["-q", zipPath, "handler.mjs", "contract.mjs"], { cwd: new URL(".", import.meta.url).pathname });
   await deployFunction({ name: names.ingress, roleArn: ingressRoleArn, zipPath, timeout: 10, environment: { CONFIG_SECRET_ARN: secretArn, QUEUE_URL: queue } });
-  await deployFunction({ name: names.worker, roleArn: workerRoleArn, zipPath, timeout: 20, environment: { CONFIG_SECRET_ARN: secretArn, STATE_TABLE: names.state, TOKEN_KMS_KEY_ARN: kmsKeyArn } });
+  await deployFunction({ name: names.worker, roleArn: workerRoleArn, zipPath, timeout: 20, environment: { CONFIG_SECRET_ARN: secretArn, STATE_TABLE: names.state } });
   await aws(["lambda", "put-function-concurrency", "--function-name", names.worker, "--reserved-concurrent-executions", "1"]);
   let functionUrl;
   try { functionUrl = await aws(["lambda", "get-function-url-config", "--function-name", names.ingress, "--query", "FunctionUrl", "--output", "text"]); }
@@ -279,7 +262,7 @@ try {
   // Reserved function concurrency plus the single FIFO message group serialize
   // one agent's refresh family. SQS mapping concurrency itself has a minimum of two.
   if (!mappings.EventSourceMappings?.some((item) => item.EventSourceArn === queueArn)) await aws(["lambda", "create-event-source-mapping", "--event-source-arn", queueArn, "--function-name", names.worker, "--batch-size", "1", "--function-response-types", "ReportBatchItemFailures"]);
-  await writePrivate(statePath, { deployedAt: new Date().toISOString(), functionUrl, kmsKeyArn, queueArn, secretArn, stateTable: names.state });
+  await writePrivate(statePath, { deployedAt: new Date().toISOString(), queueArn, secretArn, stateTable: names.state, functionUrl });
   console.log(JSON.stringify({ event: "provibot.slack_events.deployed", requestUrl: `${functionUrl}slack/events` }));
 } finally {
   await rm(directory, { force: true, recursive: true });

@@ -39,20 +39,17 @@ async function exchangeOwnerEnrollment(enrollment, installationId) {
   };
 }
 
-async function quoteManagedSessionAdmission(agentAccessToken) {
-  const quote = await requestJson(`${alderServicesUrl}/agent-instances/admission-quote`, {
-    headers: { authorization: `Bearer ${agentAccessToken}` },
-  }, "managed-session admission quote");
-  if (quote?.route !== "anthropic.managed.sessions" || typeof quote?.rateCardVersion !== "string") {
-    throw new Error("Alder Services admission quote did not identify the managed-session rate card");
-  }
-  const engagementWindowNanodollars = assertPositiveNanodollars(quote.engagementWindowNanodollars, "engagementWindowNanodollars");
-  const settlementReserveNanodollars = assertPositiveNanodollars(quote.settlementReserveNanodollars, "settlementReserveNanodollars");
-  const paymentGrantCapNanodollars = assertPositiveNanodollars(quote.paymentGrantCapNanodollars, "paymentGrantCapNanodollars");
-  if (BigInt(paymentGrantCapNanodollars) !== BigInt(engagementWindowNanodollars) + BigInt(settlementReserveNanodollars)) {
-    throw new Error("Alder Services admission quote does not cover the complete first Core hold");
-  }
-  return { paymentGrantCapNanodollars };
+async function quoteInitialManagedSessionAdmission() {
+  const quoted = await requestJson(`${alderServicesUrl}/connections/managed-session-quote`, {
+    headers: { accept: "application/json" },
+    method: "GET",
+  }, "quote initial Alder Services managed-session admission");
+  const quote = quoted?.quote;
+  return {
+    engagementWindowNanodollars: assertPositiveNanodollars(quote?.engagementWindowNanodollars, "engagementWindowNanodollars"),
+    paymentGrantCapNanodollars: assertPositiveNanodollars(quote?.paymentGrantCapNanodollars, "paymentGrantCapNanodollars"),
+    settlementReserveNanodollars: assertPositiveNanodollars(quote?.settlementReserveNanodollars, "settlementReserveNanodollars"),
+  };
 }
 
 async function createOwnerEnrollment({ agentId, installationId, paymentGrantCapNanodollars = null }) {
@@ -67,7 +64,6 @@ async function createOwnerEnrollment({ agentId, installationId, paymentGrantCapN
         merchantApplicationId: required("ALDER_SERVICES_MERCHANT_APPLICATION_ID"),
       },
     } : {}),
-    requiredServices: [],
     runtime: "managed-session",
   });
   return exchangeOwnerEnrollment(enrollment, installationId);
@@ -75,38 +71,109 @@ async function createOwnerEnrollment({ agentId, installationId, paymentGrantCapN
 
 /**
  * The owner establishes the first relationship in one encrypted enrollment.
- * Services first quotes the actual Core hold from its live rate card using a
- * disposable ordinary enrollment. This launcher never writes an apg_ to disk
- * or state and never reproduces the settlement-reserve arithmetic locally.
+ * The owner obtains Services' exact non-financial quote before minting the
+ * one-use grant. Services redeems that same grant into the first hold and pma_
+ * in one operation. The launcher never writes an apg_ to disk or state.
  */
 export async function ownerServiceEnrollment({ agentId, establish, installationId }) {
   if (!establish) return createOwnerEnrollment({ agentId, installationId });
 
-  const preflight = await createOwnerEnrollment({
-    agentId,
-    installationId: `${installationId}-admission-quote`,
-  });
-  let quote;
-  try {
-    quote = await quoteManagedSessionAdmission(preflight.controlCredentials.accessToken);
-  } finally {
-    await preflight.acknowledge();
-  }
+  const initialQuote = await quoteInitialManagedSessionAdmission();
 
   const established = await createOwnerEnrollment({
     agentId,
     installationId,
-    paymentGrantCapNanodollars: quote.paymentGrantCapNanodollars,
+    paymentGrantCapNanodollars: initialQuote.paymentGrantCapNanodollars,
   });
   const establishment = established.bundle.initialServicePayment;
   if (establish && (!establishment?.grant || establishment.merchantApplicationId !== process.env.ALDER_SERVICES_MERCHANT_APPLICATION_ID?.trim())) {
     throw new Error("owner enrollment did not contain the encrypted managed-session establishment grant");
   }
+  const connected = await requestJson(`${alderServicesUrl}/connections`, {
+    body: JSON.stringify({ mode: "managed_session" }),
+    headers: {
+      "content-type": "application/json",
+      "idempotency-key": `provibot:${agentId}:services-establish:v1`,
+      "x-alder-payment-grant": establishment.grant,
+    },
+    method: "POST",
+  }, "establish Alder Services connection");
+  if (typeof connected?.connection?.pmaRef !== "string" || !connected.connection.pmaRef.startsWith("pma_")) {
+    throw new Error("Alder Services did not establish a durable payment relationship");
+  }
+  const quote = connected?.initialAdmission?.quote;
+  if (typeof quote?.paymentGrantCapNanodollars !== "string" || BigInt(quote.paymentGrantCapNanodollars) > BigInt(initialQuote.paymentGrantCapNanodollars)) {
+    throw new Error("Alder Services initial admission exceeded the pre-establishment quote");
+  }
   return {
     acknowledge: established.acknowledge,
     controlCredentials: established.controlCredentials,
-    establishmentGrant: establishment?.grant ?? null,
+    initialAdmissionQuote: quote,
+    pmaRef: connected.connection.pmaRef,
   };
+}
+
+/**
+ * A replacement hosted session needs a normal Services credential to admit
+ * work against an already-established relationship. The local launcher uses
+ * its short-lived Alder control credential only to obtain the one-use recovery
+ * proof; the resulting sat_ is deliberately ephemeral and is never written to
+ * local state. Once the session is live, the agent performs the same recovery
+ * itself and persists its own sat_ in its sandbox.
+ */
+export async function findExistingServicesConnection(controlCredentials) {
+  if (!controlCredentials?.accessToken) {
+    throw new Error("Alder control credential is required to read an existing Services connection");
+  }
+  const connections = await requestJson(`${alderUrl}/agent/merchant-connections`, {
+    headers: { authorization: `Bearer ${controlCredentials.accessToken}` },
+    method: "GET",
+  }, "read existing Alder Services connection");
+  const merchantApplicationId = required("ALDER_SERVICES_MERCHANT_APPLICATION_ID");
+  const connection = Array.isArray(connections?.items)
+    ? connections.items.find((item) => item?.merchantApplicationId === merchantApplicationId && item?.status === "active") ?? null
+    : null;
+  return connection?.pmaRef ? { pmaRef: connection.pmaRef } : null;
+}
+
+export async function recoverExistingServicesAccess(controlCredentials, knownConnection = null, profile = "agent") {
+  if (!controlCredentials?.accessToken) {
+    throw new Error("Alder control credential is required to recover an existing Services connection");
+  }
+  const connection = knownConnection ?? await findExistingServicesConnection(controlCredentials);
+  if (!connection?.pmaRef) return null;
+
+  const proof = await requestJson(`${alderUrl}/agent/merchant-connections/${encodeURIComponent(connection.pmaRef)}/recovery-proofs`, {
+    headers: {
+      authorization: `Bearer ${controlCredentials.accessToken}`,
+      "content-type": "application/json",
+    },
+    method: "POST",
+  }, "create Alder Services recovery proof");
+  if (typeof proof?.proof !== "string" || !proof.proof.startsWith("prp_")) {
+    throw new Error("Alder did not return a valid one-use Services recovery proof");
+  }
+  const recovered = await requestJson(`${alderServicesUrl}/connections/recover`, {
+    body: JSON.stringify({ pmaRef: connection.pmaRef, profile }),
+    headers: {
+      "content-type": "application/json",
+      "x-alder-connection-recovery-proof": proof.proof,
+    },
+    method: "POST",
+  }, "recover Alder Services access");
+  if (typeof recovered?.sat !== "string" || !recovered.sat.startsWith("sat_")) {
+    throw new Error("Alder Services did not return a valid recovered access token");
+  }
+  return { expiresAt: recovered.expiresAt, pmaRef: connection.pmaRef, sat: recovered.sat };
+}
+
+/**
+ * The Slack receiver is a second, least-privilege instance of the same
+ * Services connection. It receives only an ingress SAT; it never receives an
+ * Alder bearer, MCP credential, grant, or payment authority.
+ */
+export async function recoverIngressServicesAccess(controlCredentials, knownConnection = null) {
+  return recoverExistingServicesAccess(controlCredentials, knownConnection, "ingress");
 }
 
 export { alderServicesUrl };

@@ -76,9 +76,9 @@ For each relevant Slack event:
 
 1. Slack sends an HTTP request to the Lambda Function URL.
 2. The ingress verifies the Slack request signature before accepting the event.
-3. The receiver deduplicates the event and places it on an Amazon SQS FIFO queue so ProVIBot activations are processed in order.
-4. The activation worker sends one normalized activation to ProVIBot.
-5. ProVIBot resumes the managed session associated with its identity.
+3. The receiver deduplicates the event and places it on an Amazon SQS FIFO queue so ProVIBot ingress is processed in order.
+4. The worker uses its scoped Services token to resolve the connection's active managed session, then delivers one normalized event.
+5. ProVIBot resumes the managed session associated with its existing Services connection.
 6. The session reads its policy, tools, memory, and credentials from their designated stores, then performs the work.
 7. Any visible acknowledgement, progress update, blocker, or result is posted by ProVIBot through Slack MCP.
 
@@ -145,7 +145,7 @@ vi .env
 | Group | Variables | When required | Obtain from |
 | --- | --- | --- | --- |
 | Organization | `ALDER_ORG_API_KEY` | Normal launch and operation | The organization that owns ProVIBot. |
-| First Services connection | `ALDER_SERVICES_MERCHANT_APPLICATION_ID` | First launch or renewal of a pre-connection deployment | The approved Services merchant application. Services quotes the exact initial admission from its live rate card before the owner issues the encrypted establishment grant. |
+| First Services connection | `ALDER_SERVICES_MERCHANT_APPLICATION_ID` | First launch or renewal of a pre-connection deployment | The approved Services merchant application. The launcher reads Services' exact non-financial initial-admission quote, then places that amount in the encrypted one-shot establishment grant that opens the first session. |
 | Slack user OAuth | `PROVIBOT_SLACK_ACCESS_TOKEN`, `PROVIBOT_SLACK_CLIENT_ID`, `PROVIBOT_SLACK_CLIENT_SECRET` | Slack MCP authorization; the client secret is needed only for a confidential client | `npm run authorize-slack` and the Slack app configuration. |
 | Slack routing | `PROVIBOT_SLACK_TEAM_ID`, `PROVIBOT_SLACK_USER_ID`, `PROVIBOT_SLACK_CHANNEL_ID` | Normal event routing | Slack workspace, ProVIBot user, and configured ambient-channel metadata. |
 | Slack request verification | `PROVIBOT_SLACK_SIGNING_SECRET` | Standing receiver only; verifies incoming Slack requests | Slack app **Basic Information**. |
@@ -220,7 +220,7 @@ Renew near that boundary or after a system policy revision:
 npm run renew
 ```
 
-Renewal replaces the active session while preserving ProVIBot's identity, wallet, environment, Vault, and memory store. No new identity or activation authorization is required; both remain associated with ProVIBot. For an older deployment without an Alder Services connection, the owner-side renewal performs the one-time establishment through the encrypted enrollment handoff. Run `npm start` separately when Slack authorization or launch configuration changes.
+Renewal replaces the active session while preserving ProVIBot's identity, wallet, environment, Vault, memory store, and existing Services connection. It never establishes a replacement payment relationship. Run `npm start` separately when Slack authorization or launch configuration changes.
 
 ### Stop the hosted stack
 
@@ -248,7 +248,8 @@ These records are curated operational state, not chat logs. ProVIBot should not 
 ## Credential and trust boundaries
 
 - Slack signs inbound Events API requests; the Lambda ingress verifies that signature before forwarding an event.
-- The receiver deduplicates and orders activations before they reach the managed session.
+- The receiver deduplicates and orders ingress events before they reach the managed session.
+- Its scoped Services token may resolve one active session and deliver one normalized event. It cannot read pricing or capacity, call providers, create sessions, or perform a payment operation.
 - The receiver cannot post as ProVIBot. Visible Slack messages require the Slack MCP credential held in the Vault.
 - The local launcher synchronizes credentials but does not retain them in committed source.
 - The managed agent receives only the MCP servers and tools declared for it. Credentials remain separate in their designated stores.
@@ -263,6 +264,7 @@ These records are curated operational state, not chat logs. ProVIBot should not 
 | [`src/stop.mjs`](src/stop.mjs) | Session settlement and hosted resource teardown. |
 | [`src/authorize-slack.mjs`](src/authorize-slack.mjs) | Local PKCE callback, token capture, and Slack credential validation. |
 | [`src/persona.mjs`](src/persona.mjs) | ProVIBot behavior, Slack routing, usage boundaries, and durable memory policy. |
+| [`src/deploy-slack-ingress.mjs`](src/deploy-slack-ingress.mjs) | Owner-side recovery of the scoped receiver token before its encrypted deployment configuration is updated. |
 | [`slack-events/`](slack-events/README.md) | Signed Events API ingress, FIFO queue, and bounded activation relay. |
 | [`test/`](test/) and [`slack-events/test/`](slack-events/test/) | Persona, routing, signature, and package boundary tests. |
 
