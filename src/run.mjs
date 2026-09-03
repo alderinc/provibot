@@ -4,6 +4,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { OrganizationClient, usdNanodollars } from "@alderinc/sdk";
 
 import { alderMcpUrl, alderServicesUrl, alderUrl } from "./endpoints.mjs";
+import { alderMcpCredential, syncAlderMcpVaultCredential } from "./alder-mcp-vault-credential.mjs";
 import { durableMemorySeeds, ensureDurableMemoryStructure } from "./durable-memory.mjs";
 import { persona } from "./persona.mjs";
 import { managed, refreshCredentials, required } from "./shared.mjs";
@@ -129,11 +130,8 @@ async function recoverControlCredentials(agentId) {
 
 async function ensureServicesControl() {
   if (servicesControl?.sat) return servicesControl.sat;
-  const recovered = await recoverExistingServicesAccess(
-    { ...controlCredentials, accessToken: await ensureControlFresh() },
-    null,
-    "agent",
-  );
+  await ensureControlFresh();
+  const recovered = await recoverExistingServicesAccess(controlCredentials, null, "agent");
   if (!recovered?.sat) throw new Error("ProVIBot has no established Alder Services connection for hosted-resource control");
   servicesControl = recovered;
   return recovered.sat;
@@ -177,17 +175,6 @@ async function syncSlackVaultCredential(state) {
   };
 }
 
-function mcpCredential(credentials, mcpUrl, runId) {
-  return {
-    display_name: `Alder MCP ${new URL(mcpUrl).hostname}`,
-    metadata: { provibotRunId: runId },
-    auth: {
-      type: "mcp_oauth", access_token: credentials.accessToken, expires_at: credentials.accessTokenExpiresAt, mcp_server_url: mcpUrl,
-      refresh: { client_id: credentials.clientId, refresh_token: credentials.refreshToken, token_endpoint: `${alderUrl}/oauth/token`, token_endpoint_auth: { type: "client_secret_basic", client_secret: credentials.clientSecret }, resource: credentials.resource, scope: credentials.scopes.join(" ") },
-    },
-  };
-}
-
 async function applyStandingAgentPersona(state) {
   // Keep the hosted agent and its active session on the same tool/policy
   // contract. A changed policy is recorded below and takes effect only through
@@ -209,22 +196,18 @@ async function createHostedStack() {
   });
   controlCredentials = { ...enrollment.controlCredentials };
   await writePrivateJson(authPath, controlCredentials);
-  servicesControl = await recoverExistingServicesAccess(
-    { ...controlCredentials, accessToken: await ensureControlFresh() },
-    { pmaRef: enrollment.pmaRef },
-    "agent",
-  );
+  await ensureControlFresh();
+  servicesControl = await recoverExistingServicesAccess(controlCredentials, { pmaRef: enrollment.pmaRef }, "agent");
   if (!servicesControl?.sat) throw new Error("ProVIBot owner establishment did not yield recoverable Services access");
   const created = [];
   try {
     const vault = await managedControl("POST", "/vaults", { display_name: "ProVIBot", metadata: { provibotRunId: runId } }, `${runId}:vault`);
     created.push(["vaults", vault.id]);
-    const alderMcpCredential = await managedControl(
-      "POST", `/vaults/${vault.id}/credentials`,
-      mcpCredential(enrollment.controlCredentials, alderMcpUrl, runId), `${runId}:mcp:alder`,
+    const createdAlderMcpCredential = await managedControl(
+      "POST", `/vaults/${vault.id}/credentials`, alderMcpCredential(enrollment.controlCredentials, runId), `${runId}:mcp:alder`,
     );
-    created.push([`vaults/${vault.id}/credentials`, alderMcpCredential.id]);
-    await managedControl("POST", `/vaults/${vault.id}/credentials/${alderMcpCredential.id}/mcp_oauth_validate`, {}, `${runId}:mcp-validate:${alderMcpCredential.id}`);
+    created.push([`vaults/${vault.id}/credentials`, createdAlderMcpCredential.id]);
+    await managedControl("POST", `/vaults/${vault.id}/credentials/${createdAlderMcpCredential.id}/mcp_oauth_validate`, {}, `${runId}:mcp-validate:${createdAlderMcpCredential.id}`);
     const slackCredential = await managedControl("POST", `/vaults/${vault.id}/credentials`, { display_name: `ProVIBot Slack ${slack.teamId}`, metadata: { channelId: slack.channelId, provibotRunId: runId }, auth: { type: "static_bearer", token: slack.accessToken, mcp_server_url: "https://mcp.slack.com/mcp" } }, `${runId}:slack`);
     created.push([`vaults/${vault.id}/credentials`, slackCredential.id]);
     const memory = await managedControl("POST", "/memory_stores", { name: "ProVIBot memory", description: "Authoritative durable summaries of requests, decisions, blockers, and completed work.", metadata: { provibotRunId: runId } }, `${runId}:memory`);
@@ -245,7 +228,8 @@ async function createHostedStack() {
       alderAgentId: agent.agentId,
       runId,
       reusedAlderAgent: agent.reused,
-      hosted: { agentId: hostedAgent.id, environmentId: environment.id, memoryStoreId: memory.id, sessionId: session.id, slackCredentialId: slackCredential.id, vaultId: vault.id },
+      hosted: { agentId: hostedAgent.id, alderMcpCredentialId: createdAlderMcpCredential.id, environmentId: environment.id, memoryStoreId: memory.id, sessionId: session.id, slackCredentialId: slackCredential.id, vaultId: vault.id },
+      alderMcpCredentialFingerprint: tokenFingerprint(enrollment.controlCredentials.accessToken),
       lessonsReferenceClassVersion: 1,
       memoryStructureVersion: 2,
       slackCredentialFingerprint: tokenFingerprint(slack.accessToken),
@@ -270,6 +254,12 @@ async function loadOrCreateState() {
     controlCredentials = await readJson(authPath);
     if (!controlCredentials) throw new Error("ProVIBot state exists without renewable control credentials; run npm run stop before reprovisioning");
     let updated = await syncSlackVaultCredential(state);
+    await ensureControlFresh();
+    updated = await syncAlderMcpVaultCredential({
+      control: managedControl,
+      credentials: controlCredentials,
+      state: updated,
+    });
     updated = await ensureDurableMemoryStructure({ control: managedControl, state: updated });
     const systemHash = await applyStandingAgentPersona(updated);
     if (updated.standingPersonaHash !== systemHash) {

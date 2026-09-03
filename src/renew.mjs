@@ -1,6 +1,7 @@
 import { readFile, rename, writeFile } from "node:fs/promises";
 
 import { alderMcpUrl } from "./endpoints.mjs";
+import { syncAlderMcpVaultCredential } from "./alder-mcp-vault-credential.mjs";
 import { ensureDurableMemoryStructure } from "./durable-memory.mjs";
 import { managed, refreshCredentials } from "./shared.mjs";
 import {
@@ -54,19 +55,28 @@ const ownerEnrollment = await ownerServiceEnrollment({
 });
 credentials = ownerEnrollment.controlCredentials;
 await writeFile(authUrl, `${JSON.stringify(credentials)}\n`, { mode: 0o600 });
-const existingConnection = await findExistingServicesConnection({ ...credentials, accessToken: await controlToken() });
+await controlToken();
+const existingConnection = await findExistingServicesConnection(credentials);
 if (!existingConnection) {
   // Establishment belongs to the owner-side launch flow, exactly once. A
   // renewal never silently creates a second pma_ relationship; the owner must
   // restore the intended connection before this existing session can renew.
   throw new Error("ProVIBot has no established Alder Services connection; run the owner launch establishment flow before renewal");
 }
-servicesControl = await recoverExistingServicesAccess(
-  { ...credentials, accessToken: await controlToken() },
-  existingConnection,
-  "agent",
-);
+await controlToken();
+servicesControl = await recoverExistingServicesAccess(credentials, existingConnection, "agent");
 if (!servicesControl?.sat) throw new Error("ProVIBot has no established Alder Services connection for renewal");
+
+// Upgrade the one pre-existing Vault credential before closing the current
+// session. A historic read-only credential must never strand the replacement
+// session from its own non-financial connection-recovery operation.
+await controlToken();
+const credentialSynced = await syncAlderMcpVaultCredential({
+  control,
+  credentials,
+  state,
+});
+if (credentialSynced !== state) await writeState(credentialSynced);
 
 const seeded = await ensureDurableMemoryStructure({ control, state });
 if (seeded !== state) await writeState(seeded);

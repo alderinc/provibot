@@ -12,7 +12,7 @@ test("ProVIBot mounts Alder and Slack while Services remains ordinary HTTPS", ()
 });
 
 test("owner establishment stays in the encrypted enrollment handoff", async () => {
-  const [manifest, lockfile, run, enrollment, renew, shared, ingressDeploy, receiverDeploy] = await Promise.all([
+  const [manifest, lockfile, run, enrollment, renew, shared, ingressDeploy, receiverDeploy, vaultCredential] = await Promise.all([
     readFile("package.json", "utf8"),
     readFile("package-lock.json", "utf8"),
     readFile("src/run.mjs", "utf8"),
@@ -21,6 +21,7 @@ test("owner establishment stays in the encrypted enrollment handoff", async () =
     readFile("src/shared.mjs", "utf8"),
     readFile("src/deploy-slack-ingress.mjs", "utf8"),
     readFile("slack-events/deploy.mjs", "utf8"),
+    readFile("src/alder-mcp-vault-credential.mjs", "utf8"),
   ]);
   assert.match(manifest, /"@alderinc\/sdk": "0\.1\.4"/);
   assert.match(lockfile, /"version": "0\.1\.4"/);
@@ -34,6 +35,11 @@ test("owner establishment stays in the encrypted enrollment handoff", async () =
   assert.match(enrollment, /initial admission exceeded the pre-establishment quote/);
   assert.doesNotMatch(enrollment, /requiredServices/);
   assert.match(run, /recoverExistingServicesAccess/);
+  assert.match(run, /syncAlderMcpVaultCredential/);
+  assert.match(renew, /syncAlderMcpVaultCredential/);
+  assert.match(vaultCredential, /credentials\.scopes\.join\(" "\)/);
+  assert.match(vaultCredential, /refusing to create a second credential/);
+  assert.match(vaultCredential, /mcp_oauth_validate/);
   assert.doesNotMatch(run, /"launcher"/);
   assert.match(run, /"agent"/);
   assert.doesNotMatch(run, /x-alder-payment-grant/);

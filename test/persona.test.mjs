@@ -11,11 +11,14 @@ test("standing persona uses engagement-only windows and deliberate response plac
   assert.match(prompt, /How your Alder Services access works/);
   assert.match(prompt, /Your owner set up your payment relationship with Alder Services before you ever ran/);
   assert.match(prompt, /Sign in through recovery instead/);
+  assert.match(prompt, /The public Services origin is https:\/\/services\.alder\.exchange/);
+  assert.match(prompt, /POST https:\/\/services\.alder\.exchange\/connections\/recover/);
   assert.match(prompt, /Alder MCP credential to list your existing merchant connection and mint a one-use recovery proof/);
   assert.match(prompt, /X-Alder-Connection-Recovery-Proof/);
   assert.match(prompt, /Do not put the proof in Authorization, Basic auth, a URL, or the JSON body/);
   assert.match(prompt, /Keep both proof and token out of Slack, memory, logs, and shell output/);
   assert.match(prompt, /write only the sat_ to your sandbox \.env/);
+  assert.match(prompt, /authorization denial, report that exact denial once and stop; do not retry/);
   assert.match(prompt, /use it for all Services calls: catalog, pricing, receipts, capacity reads, and provider operations/);
   assert.match(prompt, /Before meaningful Services work, and again before returning idle after substantial work, read your usage window through Services/);
   assert.match(prompt, /Your access token only proves who you are\. It cannot spend/);
