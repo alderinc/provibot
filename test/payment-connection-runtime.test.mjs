@@ -23,8 +23,8 @@ test("owner establishment stays in the encrypted enrollment handoff", async () =
     readFile("slack-events/deploy.mjs", "utf8"),
     readFile("src/alder-mcp-vault-credential.mjs", "utf8"),
   ]);
-  assert.match(manifest, /"@alderinc\/sdk": "0\.1\.4"/);
-  assert.match(lockfile, /"version": "0\.1\.4"/);
+  assert.match(manifest, /"@alderinc\/sdk": "0\.1\.5"/);
+  assert.match(lockfile, /"version": "0\.1\.5"/);
   assert.match(enrollment, /initialServicePayment/);
   assert.match(enrollment, /mode: "managed_session"/);
   assert.match(enrollment, /\/connections/);

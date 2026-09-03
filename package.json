@@ -5,7 +5,7 @@
   "private": true,
   "type": "module",
   "dependencies": {
-    "@alderinc/sdk": "0.1.4"
+    "@alderinc/sdk": "0.1.5"
   },
   "scripts": {
     "check": "node --check src/endpoints.mjs && node --check src/alder-mcp-vault-credential.mjs && node --check src/run.mjs && node --check src/persona.mjs && node --check src/durable-memory.mjs && node --check src/managed-agent-tools.mjs && node --check src/service-payment-enrollment.mjs && node --check src/deploy-slack-ingress.mjs && node --check src/standing-runtime.mjs && node --check src/renew.mjs && node --check slack-events/handler.mjs && node --check slack-events/deployer-role.mjs && node --check slack-events/bootstrap-deployer.mjs && node --check slack-events/deploy.mjs && node --check src/authorize-slack.mjs && node --check src/stop.mjs && node --test test/*.test.mjs slack-events/test/*.test.mjs",
